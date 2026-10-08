@@ -1,0 +1,33 @@
+name: gridviz
+
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: docker/development/Dockerfile
+    env_file:
+      - ../../.env
+    volumes:
+      - ../..:/home/bun/workspace:cached
+    command: sleep infinity
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:18
+    restart: unless-stopped
+    volumes:
+      - pgdata:/var/lib/postgresql
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: pw
+      POSTGRES_DB: gridviz
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d gridviz']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:

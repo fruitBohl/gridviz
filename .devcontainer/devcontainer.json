@@ -1,0 +1,22 @@
+{
+  "name": "nem-app",
+  "dockerComposeFile": "../docker/development/docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/home/bun/workspace",
+  "remoteUser": "bun",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "22" },
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "postCreateCommand": "bun install",
+  "forwardPorts": [3000],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "bradlc.vscode-tailwindcss"
+      ]
+    }
+  }
+}
