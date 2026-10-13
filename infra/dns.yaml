@@ -1,0 +1,21 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: gridviz DNS zone (delegate Squarespace nameservers to these NS values)
+
+Parameters:
+  DomainName:
+    Type: String
+    Default: andyouandyou.com
+
+Resources:
+  HostedZone:
+    Type: AWS::Route53::HostedZone
+    Properties:
+      Name: !Ref DomainName
+
+Outputs:
+  HostedZoneId:
+    Value: !Ref HostedZone
+    Export:
+      Name: gridviz-hosted-zone-id
+  NameServers:
+    Value: !Join [', ', !GetAtt HostedZone.NameServers]
