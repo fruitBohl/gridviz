@@ -25,7 +25,7 @@ A personal learning project: a web app visualising the Australian **National Ele
    | **IAM OIDC providers** (GitHub Actions role) | ❌ denied |
 
    These were list and get calls only. A create can still fail on a rule the reads didn't hit.
-3. **The certificate is requested directly from ACM** in us-east-1, with no CloudFormation stack. `infra/cert.yaml` is no longer used.
+3. **The certificate is requested directly from ACM** in us-east-1, with no CloudFormation stack. The old `infra/cert.yaml` was deleted.
 4. **No GitHub Actions deploy for now.** You build and upload by hand from the devcontainer. `GitHubDeployRole` comes out of `infra/site.yaml`. CI is an open decision (see [CI options](#ci-options-open-decision)).
 5. **The AWS CLI is already installed** in `~/.local/bin` on the Mac (v2.37.12) and in the devcontainer, so there's no need for `brew install awscli`.
 6. **CloudFront's CachingOptimized policy ID `658327ea-f89d-4fab-a63d-7e88639e58f6` is confirmed** against the AWS API.
@@ -36,12 +36,12 @@ A personal learning project: a web app visualising the Australian **National Ele
 |---|---|
 | Next.js 16.4 scaffold (Bun, TypeScript, Tailwind v4 via `@tailwindcss/turbopack`) | Done, committed |
 | Devcontainer: `docker/development/` + `.devcontainer/` | Done. Builds and runs; `bun dev` and the Postgres check worked |
-| Devcontainer AWS additions: AWS CLI v2, read-write `~/.aws` mount, `AWS_PROFILE=gridviz`, uv/uvx (Python 3.13), Claude Code, `claude-home` volume, `CLAUDE_CONFIG_DIR=/home/bun/.claude`, `restart: unless-stopped` | Done and checked 2026-10-13: the container sees account `277389192515`, and Claude Code state survives rebuilds. Committed. The Zed dev container fix (`updateRemoteUserUID: false`, `post-create.sh`) is **not yet confirmed in Zed** |
+| Devcontainer AWS additions: AWS CLI v2, read-write `~/.aws` mount, `AWS_PROFILE=gridviz`, uv/uvx (Python 3.13), Claude Code, `claude-home` volume, `CLAUDE_CONFIG_DIR=/home/bun/.claude`, `restart: unless-stopped`, `user: bun`, `updateRemoteUserUID: false`, `post-create.sh` | Done, committed and checked in a Zed-created container 2026-10-13: `bun` is UID 1000 for Zed and plain `docker compose exec`, the volume is writable, the container sees account `277389192515`, aws-mcp connects |
 | AWS MCP + skills for Claude Code: `.mcp.json` (aws-mcp) and `.claude/skills/` (23 Agent Toolkit skills) | Done: aws-mcp connects on the Mac and in the container (approved 2026-10-13). `.mcp.json` committed, with `mcp-proxy-for-aws` pinned to `1.7.0`. The skills are **gitignored**: copy them in per clone (see README) |
 | GitHub remote | `fruitBohl/gridviz` |
 | AWS resources | **None yet.** No stacks, hosted zones, certificates, buckets or distributions (checked 2026-10-10) |
-| Static export config in `next.config.ts` | **Not done** |
-| `infra/*.yaml` | `dns.yaml` and `site.yaml` committed and pass `cfn-lint`; never deployed. `cert.yaml` is no longer used and stays untracked |
+| Static export + splash page | Done 2026-10-13 (step 1). `bun run build` writes `out/`; not deployed |
+| `infra/*.yaml` | `dns.yaml` and `site.yaml` committed and pass `cfn-lint`; never deployed (step 2 done). `cert.yaml` deleted |
 | CI deploy | **Deferred** |
 | Domain DNS | Still on Squarespace, where it points at the old raven-agents deployment |
 
@@ -115,13 +115,12 @@ About **A$2–5/month** in year 1, including GST, at hobby traffic (≤10k page 
 9. **Project accounts have SCP denies.** If something fails with `explicit deny in a service control policy`, it can't be fixed with IAM. Change the approach instead.
 10. **The `claude-home` volume became owned by UID 501** (the Mac user) instead of `bun` (UID 1000). Cause: the devcontainer (opened from Zed) remapped `bun` to the host UID 501, while plain `docker compose exec` uses UID 1000, and both share the volume. Fixed with `"updateRemoteUserUID": false` in `.devcontainer/devcontainer.json`, which is safe on Docker Desktop for Mac. Confirmed in Zed 2026-10-13 (`bun` is UID 1000). If ownership is ever wrong again: `docker compose -f docker/development/docker-compose.yml exec -u root app chown -R 1000:1000 /home/bun/.claude`.
 11. **Zed runs a string `postCreateCommand` word by word** (`sh -c <word> <word>…`), so only the first word runs. `"bun install"` silently ran bare `bun`, and `"sudo chown … && bun install"` failed with sudo's usage message. Keep `postCreateCommand` a single path to `.devcontainer/post-create.sh` and put the commands in the script.
-12. **`docker compose up -d --build` replaces the container**, which drops an open Zed dev container connection ("Remote server exited with status 137"). Reopen the dev container in Zed afterwards.
-
+12. **Let Zed create the `app` container.** `docker compose up -d --build` replaces it with the plain image (no Node 22 or gh features) and drops an open Zed connection ("Remote server exited with status 137"). Zed also reattaches to an existing container rather than rebuilding, so after changing the Dockerfile, compose file or `devcontainer.json`: close the dev container in Zed, run `docker compose -f docker/development/docker-compose.yml rm -sf app` (keeps the db and volumes), then reopen it in Zed.
 13. **Zed's dev container image defaults to root.** Zed itself connects as `bun`, but a plain `docker compose exec` would run as root and could write root-owned files into the `claude-home` volume. Fixed with `user: bun` on the `app` service in `docker-compose.yml`; `exec -u root` still works when root is needed.
 
 ## Next milestone: splash page on andyouandyou.com
 
-Run the `aws` and `bun` commands inside the devcontainer (`docker compose -f docker/development/docker-compose.yml exec app bash`), from `~/workspace`.
+Run the `aws` and `bun` commands inside the devcontainer (a Zed terminal, or `docker compose -f docker/development/docker-compose.yml exec app bash`), from `~/workspace`.
 
 ### 0. Project basics (console, once)
 1. Make sure the sign-in you use for the AWS project has MFA turned on.
@@ -129,21 +128,18 @@ Run the `aws` and `bun` commands inside the devcontainer (`docker compose -f doc
 3. Run `aws sts get-caller-identity` and confirm the account is `277389192515`.
 
 ### 1. Static export (in the devcontainer)
-1. Edit `next.config.ts`:
-   - add `output: 'export',`;
-   - add `images: { unoptimized: true },` (`app/page.tsx` uses `next/image`);
-   - keep the rest.
-2. Run `bun run build`. Expect `out/index.html` and `out/404.html`.
-3. **Untested:** `next.config.ts` currently has `cacheComponents: true` and `partialPrefetching: true`, which may not work with `output: 'export'`. If the build errors, delete them.
-4. `/out/` is already in `.gitignore`.
-5. Edit `app/page.tsx` into the splash page.
+Done 2026-10-13:
+- `next.config.ts` has `output: "export"`.
+- `cacheComponents` and `partialPrefetching` were removed. Cache Components turns on partial prerendering, which fails with `Invariant: PPR cannot be enabled in export mode`, and `partialPrefetching` requires `cacheComponents`.
+- `images: { unoptimized: true }` was **not** added because the splash page doesn't use `next/image`. Add it (or a custom loader) if a page starts using `next/image`; the default loader fails in export mode.
+- `app/page.tsx` is a minimal splash page, and the `layout.tsx` title and description are now gridviz.
+- `bun run build` (in the container) writes `out/index.html` and `out/404.html`. `/out/` is gitignored. `bun run lint` passes.
 
 ### 2. Infra templates (in `infra/`)
 
 | File | Region | Contents | Used? |
 |---|---|---|---|
 | `dns.yaml` | ap-southeast-2 | Route 53 hosted zone. Exports `gridviz-hosted-zone-id` and outputs the nameservers | Yes |
-| `cert.yaml` | us-east-1 | ACM certificate | **No.** CloudFormation is denied in us-east-1; step 4 replaces it. Delete it, or keep it for reference |
 | `site.yaml` | ap-southeast-2 | Private S3 bucket + OAC, CloudFront (rewrites `/path` → `/path.html`, maps 403 → `/404.html`), A/AAAA alias records | Yes |
 
 The deploy order matters: the zone first, then Squarespace delegation, then the certificate, then the site.
@@ -228,9 +224,9 @@ Not recommended: GitHub Actions with long-lived IAM user access keys. It works o
 ## Useful commands
 
 ```bash
-# devcontainer without VS Code
-docker compose -f docker/development/docker-compose.yml up -d --build
-docker compose -f docker/development/docker-compose.yml exec app bash
+# devcontainer: open it from the Zed UI (builds the image with the Node 22 + gh features)
+docker compose -f docker/development/docker-compose.yml exec app bash   # shell from a Mac terminal (runs as bun)
+docker compose -f docker/development/docker-compose.yml rm -sf app      # force a fresh container; then reopen in Zed
 
 # inside the container
 bun dev                                  # http://localhost:3000
