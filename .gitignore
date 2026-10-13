@@ -43,3 +43,6 @@ next-env.d.ts
 
 # personal Claude Code settings
 .claude/settings.local.json
+
+# AWS Agent Toolkit skills: copied locally, see README
+.claude/skills/

@@ -40,3 +40,14 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 - `docker compose -f docker/development/docker-compose.yml exec app bash`
 
 This path skips the devcontainer features, so it runs without Node 22 and without bun install.
+
+## AWS skills for Claude Code (optional, one-off per clone)
+
+Claude Code in the container has its own `~/.claude`, so it only sees AWS skills placed in the repo's `.claude/skills/` (gitignored). On the Mac, after setting up the [AWS Agent Toolkit](https://github.com/aws/agent-toolkit-for-aws) (`aws configure agent-toolkit` installs the skills into `~/.claude/skills`), copy them in:
+
+```bash
+mkdir -p .claude/skills
+for d in ~/.claude/skills/*/; do [ -f "$d.aws-skill-metadata" ] && cp -R "${d%/}" .claude/skills/; done
+```
+
+Only folders with the toolkit's `.aws-skill-metadata` marker are copied. Re-run it after the toolkit updates its skills.

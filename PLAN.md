@@ -37,7 +37,7 @@ A personal learning project: a web app visualising the Australian **National Ele
 | Next.js 16.4 scaffold (Bun, TypeScript, Tailwind v4 via `@tailwindcss/turbopack`) | Done, committed |
 | Devcontainer: `docker/development/` + `.devcontainer/` | Done. Builds and runs; `bun dev` and the Postgres check worked |
 | Devcontainer AWS additions: AWS CLI v2, read-write `~/.aws` mount, `AWS_PROFILE=gridviz`, uv/uvx (Python 3.13), Claude Code, `claude-home` volume, `CLAUDE_CONFIG_DIR=/home/bun/.claude`, `restart: unless-stopped` | Done and checked 2026-10-13: the container sees account `277389192515`, and Claude Code state survives rebuilds. Committed. The Zed dev container fix (`updateRemoteUserUID: false`, `post-create.sh`) is **not yet confirmed in Zed** |
-| AWS MCP + skills for Claude Code: `.mcp.json` (aws-mcp) and `.claude/skills/` (23 Agent Toolkit skills) | Done: aws-mcp connects on the Mac and in the container (approved 2026-10-13). Committed. `mcp-proxy-for-aws` is pinned to `1.7.0` |
+| AWS MCP + skills for Claude Code: `.mcp.json` (aws-mcp) and `.claude/skills/` (23 Agent Toolkit skills) | Done: aws-mcp connects on the Mac and in the container (approved 2026-10-13). `.mcp.json` committed, with `mcp-proxy-for-aws` pinned to `1.7.0`. The skills are **gitignored**: copy them in per clone (see README) |
 | GitHub remote | `fruitBohl/gridviz` |
 | AWS resources | **None yet.** No stacks, hosted zones, certificates, buckets or distributions (checked 2026-10-10) |
 | Static export config in `next.config.ts` | **Not done** |
@@ -49,7 +49,7 @@ A personal learning project: a web app visualising the Australian **National Ele
 1. ~~Approve aws-mcp in the container~~ Done 2026-10-13.
 2. ~~Make the approval survive rebuilds~~ Done: `ENV CLAUDE_CONFIG_DIR=/home/bun/.claude` in the Dockerfile keeps all Claude Code state (login, MCP approvals, history) in the `claude-home` volume.
 3. ~~Add a restart policy~~ Done: `restart: unless-stopped` on the `app` service.
-4. ~~Commit the devcontainer changes, `.mcp.json` and `.claude/skills/`~~ Done 2026-10-13. The skills are copies, so re-copy them from `~/.claude/skills` after the toolkit updates them. When upgrading `mcp-proxy-for-aws`, bump the pin in `.mcp.json` deliberately.
+4. ~~Commit the devcontainer changes and `.mcp.json`~~ Done 2026-10-13. `.claude/skills/` is gitignored (removed from git 2026-10-13; still in history). The container sees the local copies through the repo mount, so re-run the README copy step after the toolkit updates its skills. When upgrading `mcp-proxy-for-aws`, bump the pin in `.mcp.json` deliberately.
 
 ## Architecture (agreed, adjusted for the project account)
 
