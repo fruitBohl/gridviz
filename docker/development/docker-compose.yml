@@ -11,6 +11,8 @@ services:
       - ../..:/home/bun/workspace:cached
       - ${HOME}/.aws:/home/bun/.aws
       - claude-home:/home/bun/.claude
+    # Zed's devcontainer image resets USER to root; pin bun so plain `docker compose exec` matches Zed.
+    user: bun
     command: sleep infinity
     restart: unless-stopped
     depends_on:
