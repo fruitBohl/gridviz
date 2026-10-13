@@ -8,7 +8,11 @@
     "ghcr.io/devcontainers/features/node:1": { "version": "22" },
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },
-  "postCreateCommand": "bun install",
+  // Keep bun at UID 1000 so the claude-home volume works with both the devcontainer and plain `docker compose exec`.
+  // Docker Desktop on macOS already makes bind mounts writable regardless of UID, so the remap isn't needed.
+  "updateRemoteUserUID": false,
+  // Single-token path: Zed runs string lifecycle commands as `sh -c <word> <word>...`, so only the first word executes.
+  "postCreateCommand": "/home/bun/workspace/.devcontainer/post-create.sh",
   "forwardPorts": [3000],
   "customizations": {
     "vscode": {

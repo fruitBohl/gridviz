@@ -9,7 +9,10 @@ services:
       - ../../.env
     volumes:
       - ../..:/home/bun/workspace:cached
+      - ${HOME}/.aws:/home/bun/.aws
+      - claude-home:/home/bun/.claude
     command: sleep infinity
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
@@ -31,3 +34,4 @@ services:
 
 volumes:
   pgdata:
+  claude-home:
