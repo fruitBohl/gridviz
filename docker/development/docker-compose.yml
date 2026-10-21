@@ -10,6 +10,8 @@ services:
     volumes:
       - ../..:/home/bun/workspace:cached
       - ${HOME}/.aws:/home/bun/.aws
+      # Commit identity (user.name/email); read-only so container tools can't rewrite it
+      - ${HOME}/.gitconfig:/home/bun/.gitconfig:ro
       - claude-home:/home/bun/.claude
     # Zed's devcontainer image resets USER to root; pin bun so plain `docker compose exec` matches Zed.
     user: bun
