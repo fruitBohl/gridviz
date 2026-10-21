@@ -46,3 +46,7 @@ next-env.d.ts
 
 # AWS Agent Toolkit skills: copied locally, see README
 .claude/skills/
+
+# misc
+HANDOVER.md
+PLAN.md
