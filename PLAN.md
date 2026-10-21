@@ -26,7 +26,7 @@ A personal learning project: a web app visualising the Australian **National Ele
 
    These were list and get calls only. A create can still fail on a rule the reads didn't hit.
 3. **The certificate is requested directly from ACM** in us-east-1, with no CloudFormation stack. The old `infra/cert.yaml` was deleted.
-4. **No GitHub Actions deploy for now.** You build and upload by hand from the devcontainer. `GitHubDeployRole` comes out of `infra/site.yaml`. CI is an open decision (see [CI options](#ci-options-open-decision)).
+4. **GitHub Actions deploys with an IAM user's access key instead of OIDC.** `GitHubDeployRole` came out of `infra/site.yaml` and was replaced by a deploy-only `DeployUser`. Releases copy andyouandyou's setup (see [CI/CD and releases](#cicd-and-releases-decided-2026-10-21)).
 5. **The AWS CLI is already installed** in `~/.local/bin` on the Mac (v2.37.12) and in the devcontainer, so there's no need for `brew install awscli`.
 6. **CloudFront's CachingOptimized policy ID `658327ea-f89d-4fab-a63d-7e88639e58f6` is confirmed** against the AWS API.
 
@@ -42,7 +42,7 @@ A personal learning project: a web app visualising the Australian **National Ele
 | AWS resources | `gridviz-dns` stack: hosted zone `Z10299872ZZU1RKA0D21N` (email records + ACM validation CNAMEs added by hand). ACM certificate `arn:aws:acm:us-east-1:277389192515:certificate/e1158b76-b084-4601-a33f-c233393f2973` (us-east-1, issued 2026-10-13). `gridviz-site` stack: bucket `gridviz-site-sitebucket-0cpqlcotehoa`, CloudFront distribution `E2JVBFPXUKXCQW` (`d372auf6pigmpu.cloudfront.net`) |
 | Static export + splash page | **Live at https://andyouandyou.com** since 2026-10-21 (root and `www` return 200; unknown paths return the 404 page) |
 | `infra/*.yaml` | `dns.yaml` and `site.yaml` committed and pass `cfn-lint`; never deployed (step 2 done). `cert.yaml` deleted |
-| CI deploy | **Deferred** |
+| CI/CD | Workflows written 2026-10-21 (`.github/workflows/`). **Not active yet:** needs the `gridviz-site` update, an access key and GitHub secrets (see [CI/CD and releases](#cicd-and-releases-decided-2026-10-21)) |
 | Domain DNS | Delegated to Route 53 on 2026-10-13 (step 3 done). Registered at Squarespace; the old nameservers were Cloudflare. Google email kept |
 
 ### Devcontainer to-dos
@@ -61,7 +61,7 @@ A personal learning project: a web app visualising the Australian **National Ele
 | NEM ingest (later) | EventBridge Scheduler → Lambda every 5 min, pulling NEMWeb zips into the DB |
 | Database (later) | **Aurora DSQL** (serverless, Postgres-compatible, no VPC/NAT needed) |
 | IaC | CloudFormation in ap-southeast-2 now; switch to SAM when Lambdas arrive. SAM deploys through CloudFormation, so it works there too |
-| Deploy | **Manual** from the devcontainer for now (`aws s3 sync` + invalidation). CI to be decided |
+| Deploy | GitHub Actions on `v*.*.*` tags, using the `DeployUser` access key (S3 sync + invalidation). Manual deploy from the devcontainer still works |
 | Local dev | Devcontainer + Postgres 18 container. Postgres is the local stand-in for DSQL |
 | Region | `ap-southeast-2` (Sydney); only the certificate lives in `us-east-1` |
 
@@ -205,9 +205,9 @@ Blocked by an SCP. See [CI options](#ci-options-open-decision).
 **Outcome:** `gridviz-site` is `CREATE_COMPLETE`, with BucketName `gridviz-site-sitebucket-0cpqlcotehoa` and DistributionId `E2JVBFPXUKXCQW`. No SCP denies were hit.
 
 1. ~~Remove the GitHub pieces from `infra/site.yaml`~~ Done 2026-10-13: the `GitHubRepo` parameter, `GitHubDeployRole` and the `DeployRoleArn` output are gone (the role can't be created without the OIDC provider). Passes `cfn-lint`.
-2. Deploy the site stack and read its outputs. Note **BucketName** and **DistributionId**. `--capabilities CAPABILITY_IAM` is no longer needed.
+2. Deploy the site stack and read its outputs. Note **BucketName** and **DistributionId**. Since 2026-10-21 the stack also creates `DeployUser`, so add `--capabilities CAPABILITY_IAM` (see [CI/CD and releases](#cicd-and-releases-decided-2026-10-21)).
    ```bash
-   aws cloudformation deploy --stack-name gridviz-site --template-file infra/site.yaml \
+   aws cloudformation deploy --stack-name gridviz-site --template-file infra/site.yaml --capabilities CAPABILITY_IAM \
      --parameter-overrides CertificateArn=<CertificateArn>
    aws cloudformation describe-stacks --stack-name gridviz-site --query 'Stacks[0].Outputs' --output table
    ```
@@ -224,21 +224,59 @@ curl -I https://www.andyouandyou.com    # expect HTTP/2 200
 ```
 Optional: save these as a `deploy` script in `package.json` with the bucket and distribution IDs filled in.
 
-### CI options (open decision)
-GitHub Actions can't use an OIDC role in this account. Choose one later:
-1. **Keep deploying by hand.** Zero cost and no setup. Fine for a learning project with one developer.
-2. **AWS CodePipeline + CodeBuild, connected to GitHub through CodeConnections.** It stays fully on AWS and uses no OIDC, and it's useful AWS learning. **Unverified:** whether the SCPs allow it, and the cost (CodeBuild has a small free tier; CodePipeline V2 charges per action-minute).
-3. **Move to a standard AWS account** (the "advanced experience"). None of these SCPs apply there, so the original GitHub Actions + OIDC plan in `HANDOVER.md` works. It means a new sign-up and leaving the project setup.
+### CI/CD and releases (decided 2026-10-21)
+Copied from [andyouandyou/andyouandyou](https://github.com/andyouandyou/andyouandyou):
+- **Releases:** push a semver tag; there's no release tool or changelog.
+- **PR checks:** run on every pull request.
 
-Not recommended: GitHub Actions with long-lived IAM user access keys. It works only if the SCPs allow IAM users, and it means a permanent secret stored in GitHub.
+The deploy step targets S3 + CloudFront instead of a VPS.
+
+| Workflow | Trigger | Does |
+|---|---|---|
+| `test-on-pr.yml` | every pull request, or by hand | `bun install --frozen-lockfile`, `bun run lint`, `bunx tsc --noEmit`, `bun run build` |
+| `build-and-deploy.yml` | push of a `v*.*.*` tag, or by hand | build, then `aws s3 sync out/ … --delete` + CloudFront invalidation |
+
+**Auth:**
+- GitHub OIDC is denied by the SCP, so the deploy uses the `DeployUser` IAM user from `gridviz-site`.
+- It can only list, upload and delete objects in the site bucket, and invalidate the distribution.
+- Its access key is created by hand and stored as GitHub secrets `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, the same pattern andyouandyou uses for its VPS SSH key.
+- Worst case if the key leaks: someone changes or deletes the site's files. Rotate it occasionally.
+- Checked with the IAM policy simulator on 2026-10-21: IAM users and keys, CodeBuild and CodePipeline are allowed; OIDC is denied.
+
+**One-off setup:**
+1. Update the site stack. It now creates `DeployUser`, so it needs `CAPABILITY_IAM`:
+   ```bash
+   aws cloudformation deploy --stack-name gridviz-site --template-file infra/site.yaml --capabilities CAPABILITY_IAM \
+     --parameter-overrides CertificateArn=arn:aws:acm:us-east-1:277389192515:certificate/e1158b76-b084-4601-a33f-c233393f2973
+   aws cloudformation describe-stacks --stack-name gridviz-site --query 'Stacks[0].Outputs' --output table   # note DeployUserName
+   ```
+2. Create the access key. The secret is shown **once**, and nothing else stores it:
+   ```bash
+   aws iam create-access-key --user-name <DeployUserName> --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text
+   ```
+3. In GitHub, open **fruitBohl/gridviz → Settings → Secrets and variables → Actions → New repository secret**. Add `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. Then clear your terminal scrollback.
+4. Push the workflows. Test the deploy with **Actions → Deploy site to AWS → Run workflow**, or by releasing.
+
+**Releasing:**
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+**Rotating the key:**
+1. `aws iam create-access-key --user-name <DeployUserName>`.
+2. Update both GitHub secrets.
+3. `aws iam delete-access-key --user-name <DeployUserName> --access-key-id <old id>`.
+
+An IAM user can have at most two keys.
+
+**Alternative kept in reserve:** CodePipeline + CodeBuild through CodeConnections (no long-lived key; allowed by the SCP, but costs a little and moves the deploy out of GitHub).
 
 ## Later milestones (not designed in detail)
 
 1. **API:** a TypeScript Lambda + HTTP API, a `/api/*` CloudFront behaviour, and a move to SAM (it deploys through CloudFormation in ap-southeast-2, which is allowed).
 2. **Database:** an Aurora DSQL cluster in `ap-southeast-2`, with IAM auth from the Lambdas. Check DSQL's Postgres gaps before writing the schema.
 3. **Ingest:** EventBridge Scheduler (every 5 min) → Lambda → NEMWeb `Reports/Current/DispatchIS_Reports` (prices, region summary) and, later, `Dispatch_SCADA` (unit output). Set log retention to about 14 days on every Lambda log group.
-4. **PR checks:** lint, typecheck and build. GitHub Actions is fine here because it needs no AWS access.
-5. **CI deploy:** whichever option above is chosen.
+4. ~~PR checks~~ and ~~CI deploy~~: done; see [CI/CD and releases](#cicd-and-releases-decided-2026-10-21). Add unit/e2e test jobs (as andyouandyou does) once there are tests.
 
 **Re-check SCPs at each milestone.** Lambda, HTTP API, DSQL and Scheduler only passed list calls. Try the first create early, before building around it.
 

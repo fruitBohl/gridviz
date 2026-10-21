@@ -1,0 +1,44 @@
+name: Deploy site to AWS
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-site
+  cancel-in-progress: false # never cut an s3 sync off halfway
+
+env:
+  AWS_REGION: ap-southeast-2
+  SITE_BUCKET: gridviz-site-sitebucket-0cpqlcotehoa
+  DISTRIBUTION_ID: E2JVBFPXUKXCQW
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.8' # matches the dev container
+      - name: Cache Bun dependencies
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+
+      # Access key of the gridviz-site stack's DeployUser (OIDC is denied by the project SCP)
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - run: aws s3 sync out/ "s3://$SITE_BUCKET" --delete
+      - run: aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths '/*'
