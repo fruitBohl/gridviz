@@ -39,11 +39,11 @@ A personal learning project: a web app visualising the Australian **National Ele
 | Devcontainer AWS additions: AWS CLI v2, read-write `~/.aws` mount, `AWS_PROFILE=gridviz`, uv/uvx (Python 3.13), Claude Code, `claude-home` volume, `CLAUDE_CONFIG_DIR=/home/bun/.claude`, `restart: unless-stopped`, `user: bun`, `updateRemoteUserUID: false`, `post-create.sh` | Done, committed and checked in a Zed-created container 2026-10-13: `bun` is UID 1000 for Zed and plain `docker compose exec`, the volume is writable, the container sees account `277389192515`, aws-mcp connects |
 | AWS MCP + skills for Claude Code: `.mcp.json` (aws-mcp) and `.claude/skills/` (23 Agent Toolkit skills) | Done: aws-mcp connects on the Mac and in the container (approved 2026-10-13). `.mcp.json` committed, with `mcp-proxy-for-aws` pinned to `1.7.0`. The skills are **gitignored**: copy them in per clone (see README) |
 | GitHub remote | `fruitBohl/gridviz` |
-| AWS resources | **None yet.** No stacks, hosted zones, certificates, buckets or distributions (checked 2026-10-10) |
-| Static export + splash page | Done 2026-10-13 (step 1). `bun run build` writes `out/`; not deployed |
+| AWS resources | `gridviz-dns` stack: hosted zone `Z10299872ZZU1RKA0D21N` (email records + ACM validation CNAMEs added by hand). ACM certificate `arn:aws:acm:us-east-1:277389192515:certificate/e1158b76-b084-4601-a33f-c233393f2973` (us-east-1, issued 2026-10-13). `gridviz-site` stack: bucket `gridviz-site-sitebucket-0cpqlcotehoa`, CloudFront distribution `E2JVBFPXUKXCQW` (`d372auf6pigmpu.cloudfront.net`) |
+| Static export + splash page | **Live at https://andyouandyou.com** since 2026-10-21 (root and `www` return 200; unknown paths return the 404 page) |
 | `infra/*.yaml` | `dns.yaml` and `site.yaml` committed and pass `cfn-lint`; never deployed (step 2 done). `cert.yaml` deleted |
 | CI deploy | **Deferred** |
-| Domain DNS | Still on Squarespace, where it points at the old raven-agents deployment |
+| Domain DNS | Delegated to Route 53 on 2026-10-13 (step 3 done). Registered at Squarespace; the old nameservers were Cloudflare. Google email kept |
 
 ### Devcontainer to-dos
 1. ~~Approve aws-mcp in the container~~ Done 2026-10-13.
@@ -117,8 +117,12 @@ About **A$2–5/month** in year 1, including GST, at hobby traffic (≤10k page 
 11. **Zed runs a string `postCreateCommand` word by word** (`sh -c <word> <word>…`), so only the first word runs. `"bun install"` silently ran bare `bun`, and `"sudo chown … && bun install"` failed with sudo's usage message. Keep `postCreateCommand` a single path to `.devcontainer/post-create.sh` and put the commands in the script.
 12. **Let Zed create the `app` container.** `docker compose up -d --build` replaces it with the plain image (no Node 22 or gh features) and drops an open Zed connection ("Remote server exited with status 137"). Zed also reattaches to an existing container rather than rebuilding, so after changing the Dockerfile, compose file or `devcontainer.json`: close the dev container in Zed, run `docker compose -f docker/development/docker-compose.yml rm -sf app` (keeps the db and volumes), then reopen it in Zed.
 13. **Zed's dev container image defaults to root.** Zed itself connects as `bun`, but a plain `docker compose exec` would run as root and could write root-owned files into the `claude-home` volume. Fixed with `user: bun` on the `app` service in `docker-compose.yml`; `exec -u root` still works when root is needed.
+14. **`aws` fails with `Unable to redirect output to pager` / `No such file or directory: 'less'`** in the container. The request has already been sent; only the display fails. Fixed with `ENV AWS_PAGER=""` in the Dockerfile; until the container is rebuilt, run `export AWS_PAGER=""` or add `--no-cli-pager`.
+15. **`aws login` lands on the "IAM user sign in" page** asking for an account ID. Don't use the IAM username box. Click **Change to new experience** (or **Sign in using root user email**). The account ID is `277389192515`.
 
-## Next milestone: splash page on andyouandyou.com
+## Milestone 1: splash page on andyouandyou.com (done 2026-10-21)
+
+All steps below are complete; they're kept as the record of how it was built. Step 7 is the routine for every site update.
 
 Run the `aws` and `bun` commands inside the devcontainer (a Zed terminal, or `docker compose -f docker/development/docker-compose.yml exec app bash`), from `~/workspace`.
 
@@ -144,7 +148,19 @@ Done 2026-10-13:
 
 The deploy order matters: the zone first, then Squarespace delegation, then the certificate, then the site.
 
-### 3. DNS zone and Squarespace delegation
+### 3. DNS zone and Squarespace delegation (done 2026-10-13)
+**Outcome:**
+- **Zone:** `gridviz-dns` is deployed, with HostedZoneId `Z10299872ZZU1RKA0D21N` and nameservers `ns-560.awsdns-06.net`, `ns-386.awsdns-48.com`, `ns-1152.awsdns-16.org`, `ns-1543.awsdns-00.co.uk`.
+- **Previous DNS:** before the switch, the domain used **Cloudflare** nameservers, not Squarespace DNS. The records on Squarespace's DNS Settings page (an old A record and Resend `send`/`resend._domainkey`) were inactive and were not copied.
+- **Email kept:** Google Workspace email was preserved by copying these records into Route 53 by hand (`aws route53 change-resource-record-sets`, outside CloudFormation):
+  - the root MX records (`aspmx.l.google.com` + `alt1`–`alt4`);
+  - the root TXT records (SPF `v=spf1 include:_spf.google.com ~all` and `google-site-verification`);
+  - `_dmarc` TXT `v=DMARC1; p=reject; sp=reject; adkim=s; aspf=s`.
+- **Verified:** the `.com` registry and public resolvers return the `awsdns` servers, and public MX lookups return Google.
+- **Optional leftovers:** send a test email both ways; remove the old zone from Cloudflare.
+- **Later:** these email records aren't in `dns.yaml` yet. Add them if the zone should be fully defined in code.
+
+Original steps, for reference:
 1. Deploy the zone and read its outputs. Note **HostedZoneId** and the four **NameServers**.
    ```bash
    aws cloudformation deploy --stack-name gridviz-dns --template-file infra/dns.yaml
@@ -154,7 +170,9 @@ The deploy order matters: the zone first, then Squarespace delegation, then the 
 3. In Squarespace, open **Domains → andyouandyou.com → DNS → Nameservers** and switch to custom nameservers. Enter the four values, turning off DNSSEC first if asked. **This takes raven-agents offline on this domain.**
 4. Wait until `dig NS andyouandyou.com +short` shows the `awsdns` servers.
 
-### 4. Certificate (ACM in us-east-1, no CloudFormation)
+### 4. Certificate (ACM in us-east-1, no CloudFormation) (done 2026-10-13)
+**Outcome:** certificate `arn:aws:acm:us-east-1:277389192515:certificate/e1158b76-b084-4601-a33f-c233393f2973` was issued about 8 minutes after the validation CNAMEs were added. The `aws acm wait certificate-validated` waiter timed out twice: the first time because the CNAMEs hadn't been created yet, the second time just before ACM's next check. Check with `aws acm describe-certificate … --query Certificate.Status` instead of relying on the waiter.
+
 1. Request the certificate:
    ```bash
    aws acm request-certificate --region us-east-1 \
@@ -183,7 +201,9 @@ The deploy order matters: the zone first, then Squarespace delegation, then the 
 ### 5. ~~GitHub identity provider~~ (dropped)
 Blocked by an SCP. See [CI options](#ci-options-open-decision).
 
-### 6. Site stack
+### 6. Site stack (done 2026-10-21)
+**Outcome:** `gridviz-site` is `CREATE_COMPLETE`, with BucketName `gridviz-site-sitebucket-0cpqlcotehoa` and DistributionId `E2JVBFPXUKXCQW`. No SCP denies were hit.
+
 1. ~~Remove the GitHub pieces from `infra/site.yaml`~~ Done 2026-10-13: the `GitHubRepo` parameter, `GitHubDeployRole` and the `DeployRoleArn` output are gone (the role can't be created without the OIDC provider). Passes `cfn-lint`.
 2. Deploy the site stack and read its outputs. Note **BucketName** and **DistributionId**. `--capabilities CAPABILITY_IAM` is no longer needed.
    ```bash
@@ -194,10 +214,11 @@ Blocked by an SCP. See [CI options](#ci-options-open-decision).
 3. The first deploy takes 5–15 minutes because CloudFront is slow to create.
 
 ### 7. Deploy (by hand, and again for every site update)
+First deploy done 2026-10-21. Run these in the devcontainer:
 ```bash
 bun run build
-aws s3 sync out/ s3://<BucketName> --delete
-aws cloudfront create-invalidation --distribution-id <DistributionId> --paths '/*'
+aws s3 sync out/ s3://gridviz-site-sitebucket-0cpqlcotehoa --delete
+aws cloudfront create-invalidation --distribution-id E2JVBFPXUKXCQW --paths '/*'
 curl -I https://andyouandyou.com        # expect HTTP/2 200
 curl -I https://www.andyouandyou.com    # expect HTTP/2 200
 ```

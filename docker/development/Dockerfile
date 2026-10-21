@@ -17,6 +17,9 @@ RUN curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -
     && rm -rf /tmp/aws /tmp/awscliv2.zip \
     && aws --version
 
+# No `less` in this image; print AWS CLI output directly instead of paging
+ENV AWS_PAGER=""
+
 # Passwordless sudo, same as raven
 RUN echo 'bun ALL=(root) NOPASSWD:ALL' > /etc/sudoers.d/bun \
     && chmod 0440 /etc/sudoers.d/bun
