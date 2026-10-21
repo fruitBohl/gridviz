@@ -51,3 +51,19 @@ for d in ~/.claude/skills/*/; do [ -f "$d.aws-skill-metadata" ] && cp -R "${d%/}
 ```
 
 Only folders with the toolkit's `.aws-skill-metadata` marker are copied. Re-run it after the toolkit updates its skills.
+## GitHub MCP server for Claude Code (optional)
+
+`.mcp.json` includes GitHub's hosted MCP server. It authenticates with a fine-grained personal access token read from the `GITHUB_PAT` environment variable, so the token is never committed.
+
+1. Create a token at <https://github.com/settings/personal-access-tokens/new>:
+   - **Resource owner:** your account.
+   - **Repository access:** only `gridviz`.
+   - **Expiration:** 90 days.
+   - **Permissions:** Contents: read, Actions: read, Pull requests: read & write, Issues: read & write. Add Administration: read & write only if Claude should manage rulesets.
+2. **Dev container:** add `GITHUB_PAT=<token>` to `.env` (gitignored; it reaches the container through `env_file`), then recreate the container.
+3. **Mac:** keep the token in the Keychain and export it from `~/.zshrc`:
+   ```bash
+   security add-generic-password -a "$USER" -s github-pat-gridviz -w   # paste the token when prompted
+   echo 'export GITHUB_PAT="$(security find-generic-password -a "$USER" -s github-pat-gridviz -w 2>/dev/null)"' >> ~/.zshrc
+   ```
+4. Restart Claude Code, approve `github` when prompted, and check it with `claude mcp list`.

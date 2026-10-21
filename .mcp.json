@@ -11,6 +11,13 @@
       "env": {
         "AWS_MCP_PROXY_PROFILES": "gridviz"
       }
+    },
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${GITHUB_PAT:-}"
+      }
     }
   }
 }
