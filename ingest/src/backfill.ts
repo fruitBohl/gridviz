@@ -88,8 +88,19 @@ type Fetcher = { bytes(url: string, name: string): Promise<Uint8Array>; text(url
 
 function nemweb(cacheDir: string, concurrency: number, log: (message: string) => void): Fetcher {
   const limit = limiter(concurrency);
-  const get = (url: string) =>
-    limit(() => fetch(url, { headers: { "user-agent": USER_AGENT }, signal: AbortSignal.timeout(300_000) }));
+  /** NEMWeb sits behind Azure Front Door, which answers a burst of requests with a short-lived 403. */
+  const get = async (url: string): Promise<Response> => {
+    for (let attempt = 0; ; attempt++) {
+      const res = await limit(() =>
+        fetch(url, { headers: { "user-agent": USER_AGENT }, signal: AbortSignal.timeout(300_000) }),
+      );
+      const retryable = res.status === 403 || res.status === 429 || res.status >= 500;
+      if (!retryable || attempt === 3) return res;
+      const wait = 10_000 * 2 ** attempt;
+      log(`GET ${url} -> ${res.status}, retrying in ${wait / 1000} s`);
+      await new Promise((resolve) => setTimeout(resolve, wait));
+    }
+  };
 
   return {
     async bytes(url, name) {
@@ -243,7 +254,7 @@ if (import.meta.main) {
     to: values.to,
     outDir: values.out,
     cacheDir: ".cache/nemweb",
-    concurrency: 4,
+    concurrency: 2,
     planOnly: values["plan-only"],
     log: (message) => console.log(message),
   });
