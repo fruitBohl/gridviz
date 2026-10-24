@@ -57,3 +57,7 @@ PLAN.md
 /ingest/dist/
 /public/data/
 .aws-sam/
+
+# NEMWeb download cache and local backfill output (milestone 3)
+/.cache/
+/backfill-out/
