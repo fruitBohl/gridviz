@@ -40,9 +40,31 @@ export function splitCsvLine(line: string): string[] {
  * - `I,<report>,<table>,<version>,<cols...>` column names for the D rows that follow
  * - `D,<report>,<table>,<version>,<vals...>` one data row
  */
-export function parseAemoCsv(text: string): Map<string, Table> {
+/** Concatenates tables that share a key, as when MMSDM splits a large table into FILE01, FILE02, ... */
+export function mergeTables(parts: Map<string, Table>[]): Map<string, Table> {
+  const merged = new Map<string, Table>();
+  for (const part of parts) {
+    for (const [key, table] of part) {
+      const existing = merged.get(key);
+      if (!existing) {
+        merged.set(key, { version: table.version, rows: [...table.rows] });
+      } else if (existing.version !== table.version) {
+        throw new Error(`${key}: files disagree on the table version (${existing.version} and ${table.version})`);
+      } else {
+        existing.rows.push(...table.rows);
+      }
+    }
+  }
+  return merged;
+}
+
+/**
+ * `keep` limits parsing to some tables and columns, for files much bigger than one DispatchIS
+ * report. A listed column missing from the file is left out of the rows, so schemas still catch it.
+ */
+export function parseAemoCsv(text: string, keep?: Map<string, readonly string[]>): Map<string, Table> {
   const tables = new Map<string, Table>();
-  const headers = new Map<string, string[]>();
+  const headers = new Map<string, [name: string, index: number][]>();
 
   for (const line of text.split(/\r?\n/)) {
     if (line.length === 0) continue;
@@ -51,8 +73,11 @@ export function parseAemoCsv(text: string): Map<string, Table> {
     if (type !== "I" && type !== "D") continue;
 
     const key = `${report}.${table}`;
+    const wanted = keep?.get(key);
+    if (keep && !wanted) continue;
     if (type === "I") {
-      headers.set(key, fields.slice(4));
+      const columns = fields.slice(4).map((name, i): [string, number] => [name, 4 + i]);
+      headers.set(key, wanted ? columns.filter(([name]) => wanted.includes(name)) : columns);
       tables.set(key, { version: Number(version), rows: tables.get(key)?.rows ?? [] });
       continue;
     }
@@ -60,9 +85,7 @@ export function parseAemoCsv(text: string): Map<string, Table> {
     const columns = headers.get(key);
     if (!columns) throw new Error(`D row for ${key} before its I row`);
     const row: Row = {};
-    columns.forEach((name, i) => {
-      row[name] = fields[4 + i] ?? "";
-    });
+    for (const [name, index] of columns) row[name] = fields[index] ?? "";
     tables.get(key)!.rows.push(row);
   }
 

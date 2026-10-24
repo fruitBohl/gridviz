@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { strToU8, zipSync } from "fflate";
 import { parseDispatchIsCsv, parseDispatchIsZip } from "../src/dispatchis";
-import { aemoTimeToIso, AemoFormatError } from "../src/schema";
+import { aemoTimeToIso, AemoFormatError, toCents } from "../src/schema";
 import { COLUMNS, dispatchCsv, validRows } from "./helpers";
 
 const t = "2026/10/24 15:05:00";
@@ -27,7 +27,16 @@ test("a valid file parses", () => {
 describe("table structure", () => {
   test("a table version bump", () => {
     const err = formatError(dispatchCsv(t, { versions: { REGIONSUM: 10 } }));
-    expect(err.message).toContain("DISPATCH.REGIONSUM: AEMO sent version 10, the parser expects 9");
+    expect(err.message).toContain("DISPATCH.REGIONSUM: AEMO sent version 10, the parser accepts 8 or 9");
+  });
+
+  test("REGIONSUM v8, as in the 2024 MMSDM archive, is accepted", () => {
+    expect(parseDispatchIsCsv(dispatchCsv(t, { versions: { REGIONSUM: 8 } }))).toHaveLength(1);
+  });
+
+  test("an older REGIONSUM version is rejected", () => {
+    const err = formatError(dispatchCsv(t, { versions: { REGIONSUM: 7 } }));
+    expect(err.message).toContain("DISPATCH.REGIONSUM: AEMO sent version 7, the parser accepts 8 or 9");
   });
 
   test("a missing table", () => {
@@ -58,6 +67,9 @@ describe("field values", () => {
     ["an unknown INTERVENTION flag", "regionSum", { INTERVENTION: "2" }, "INTERVENTION"],
     ["a reformatted timestamp", "price", { SETTLEMENTDATE: "2026-10-24T15:05:00" }, "YYYY/MM/DD HH:MM:SS"],
     ["a malformed interconnector ID", "interconnector", { INTERCONNECTORID: "vic sa" }, "interconnector ID"],
+    ["a non-integer APCFLAG", "price", { APCFLAG: "0.5" }, "bit field"],
+    ["an APCFLAG with an unknown bit", "price", { APCFLAG: "32" }, "APCFLAG"],
+    ["an unknown MARKETSUSPENDEDFLAG", "price", { MARKETSUSPENDEDFLAG: "3" }, "MARKETSUSPENDEDFLAG"],
   ] as const)("%s", (_, key, overrides, expected) => {
     expect(formatError(dispatchCsv(t, withRow(key, overrides))).message).toContain(expected);
   });
@@ -81,4 +93,19 @@ test("a zip without a CSV", () => {
 test("aemoTimeToIso", () => {
   expect(aemoTimeToIso("2026/10/25 00:00:00")).toBe("2026-10-25T00:00:00+10:00");
   expect(() => aemoTimeToIso("2026-10-25 00:00")).toThrow(AemoFormatError);
+});
+
+// Real RRPs from MMSDM that the earlier Math.round(v * 100) / 100 got a cent wrong, compared with
+// AEMO's aggregated price and demand data
+test.each([
+  [-44.465, -44.47],
+  [80.945, 80.95],
+  [2.195, 2.2],
+  [162.605, 162.61],
+  [-3.505, -3.51],
+  [17500.00229, 17500],
+  [-0.004, 0],
+  [0, 0],
+])("toCents(%p) is %p", (value, cents) => {
+  expect(Object.is(toCents(value), cents)).toBe(true);
 });

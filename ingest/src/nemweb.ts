@@ -1,6 +1,6 @@
 export const DISPATCHIS_URL = "https://nemweb.com.au/Reports/Current/DispatchIS_Reports/";
 
-const USER_AGENT = "gridviz (+https://andyouandyou.com)";
+export const USER_AGENT = "gridviz (+https://andyouandyou.com)";
 
 export type ReportFile = {
   name: string;

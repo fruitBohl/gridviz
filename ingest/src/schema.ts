@@ -19,14 +19,17 @@ const aemoTime = z
   .regex(/^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}$/, "expected YYYY/MM/DD HH:MM:SS")
   .transform(aemoTimeToIso);
 
+/**
+ * Rounds half away from zero, as AEMO's own aggregated price and demand data does. Values like
+ * 80.945 sit just below the half in binary (8094.4999... cents), so trim to 15 significant digits first.
+ */
+export function toCents(v: number): number {
+  const cents = Math.round(Number((Math.abs(v) * 100).toPrecision(15)));
+  return v < 0 && cents !== 0 ? -cents / 100 : cents / 100;
+}
+
 const aemoNumber = (check = z.number()) =>
-  z
-    .string()
-    .trim()
-    .min(1, "empty value")
-    .transform(Number)
-    .pipe(check)
-    .transform((v) => Math.round(v * 100) / 100);
+  z.string().trim().min(1, "empty value").transform(Number).pipe(check).transform(toCents);
 
 const intervention = z.enum(["0", "1"]);
 
@@ -35,6 +38,8 @@ const priceRow = z.object({
   REGIONID: z.enum(NEM_REGIONS),
   INTERVENTION: intervention,
   RRP: aemoNumber(z.number().min(-1000, "below the -$1000/MWh market price floor")),
+  APCFLAG: z.string().regex(/^\d+$/, "expected a bit field").transform(Number).pipe(z.number().max(31)),
+  MARKETSUSPENDEDFLAG: z.enum(["0", "1", "2"]),
 });
 
 const regionSumRow = z.object({
@@ -56,14 +61,21 @@ const interconnectorRow = z.object({
   IMPORTLIMIT: aemoNumber(),
 });
 
-type TableSpec<S extends z.ZodType> = { key: string; version: number; row: S };
+type TableSpec<S extends z.ZodType> = { key: string; versions: number[]; row: S };
 
-/** EMMS data model table versions, checked 2026-10-24. A new version can rename or drop columns. */
+/**
+ * EMMS data model table versions, checked 2026-10-24. A new version can rename or drop columns.
+ * REGIONSUM v8 is in the MMSDM monthly archive for 2024; current DispatchIS reports send v9.
+ */
 export const DISPATCHIS_TABLES = {
-  price: { key: "DISPATCH.PRICE", version: 5, row: priceRow },
-  regionSum: { key: "DISPATCH.REGIONSUM", version: 9, row: regionSumRow },
-  interconnector: { key: "DISPATCH.INTERCONNECTORRES", version: 3, row: interconnectorRow },
+  price: { key: "DISPATCH.PRICE", versions: [5], row: priceRow },
+  regionSum: { key: "DISPATCH.REGIONSUM", versions: [8, 9], row: regionSumRow },
+  interconnector: { key: "DISPATCH.INTERCONNECTORRES", versions: [3], row: interconnectorRow },
 } satisfies Record<string, TableSpec<z.ZodType>>;
+
+export const DISPATCHIS_COLUMNS = new Map(
+  Object.values(DISPATCHIS_TABLES).map((spec) => [spec.key, Object.keys(spec.row.shape)] as const),
+);
 
 /** AEMO adds columns in data model releases, so unknown columns are allowed (Zod drops them). */
 export function readTable<S extends z.ZodType>(
@@ -72,9 +84,9 @@ export function readTable<S extends z.ZodType>(
 ): z.output<S>[] {
   const table = tables.get(spec.key);
   if (!table) throw new AemoFormatError(`${spec.key}: table not found`);
-  if (table.version !== spec.version) {
+  if (!spec.versions.includes(table.version)) {
     throw new AemoFormatError(
-      `${spec.key}: AEMO sent version ${table.version}, the parser expects ${spec.version}. ` +
+      `${spec.key}: AEMO sent version ${table.version}, the parser accepts ${spec.versions.join(" or ")}. ` +
         "Check the EMMS data model release notes, then update ingest/src/schema.ts",
     );
   }

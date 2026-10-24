@@ -2,9 +2,11 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { GetObjectCommand, PutObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 
+export type PutOptions = { cacheControl?: string };
+
 export interface Store {
   getJson<T>(key: string): Promise<T | undefined>;
-  putJson(key: string, value: unknown): Promise<void>;
+  putJson(key: string, value: unknown, options?: PutOptions): Promise<void>;
   putBytes(key: string, body: Uint8Array, contentType: string): Promise<void>;
 }
 
@@ -27,14 +29,14 @@ export class S3Store implements Store {
     }
   }
 
-  async putJson(key: string, value: unknown): Promise<void> {
+  async putJson(key: string, value: unknown, options: PutOptions = {}): Promise<void> {
     await this.s3.send(
       new PutObjectCommand({
         Bucket: this.bucket,
         Key: key,
         Body: JSON.stringify(value),
         ContentType: "application/json",
-        CacheControl: DATA_CACHE_CONTROL,
+        CacheControl: options.cacheControl ?? DATA_CACHE_CONTROL,
       }),
     );
   }

@@ -2,28 +2,11 @@
 
 import { useEffect, useState } from "react";
 import type { Latest } from "@/ingest/src/output";
+import { INTERCONNECTORS, REGIONS } from "@/lib/nem";
+import { Banner } from "./Banner";
 
 const REFRESH_MS = 60_000;
 const STALE_AFTER_MS = 15 * 60_000;
-
-const REGION_NAMES: Record<string, string> = {
-  NSW1: "New South Wales",
-  QLD1: "Queensland",
-  SA1: "South Australia",
-  TAS1: "Tasmania",
-  VIC1: "Victoria",
-};
-
-/** Positive flow runs from the first region to the second. */
-const INTERCONNECTORS: Record<string, { name: string; from: string; to: string }> = {
-  "N-Q-MNSP1": { name: "Terranora", from: "NSW", to: "QLD" },
-  "NSW1-QLD1": { name: "QNI", from: "NSW", to: "QLD" },
-  "NSW1-SA1": { name: "EnergyConnect", from: "NSW", to: "SA" },
-  "T-V-MNSP1": { name: "Basslink", from: "TAS", to: "VIC" },
-  "V-S-MNSP1": { name: "Murraylink", from: "VIC", to: "SA" },
-  "V-SA": { name: "Heywood", from: "VIC", to: "SA" },
-  "VIC1-NSW1": { name: "VNI", from: "VIC", to: "NSW" },
-};
 
 const price = new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" });
 const mw = new Intl.NumberFormat("en-AU", { maximumFractionDigits: 0 });
@@ -104,7 +87,7 @@ export function LiveTable() {
               rows={Object.entries(data.regions)
                 .sort(([a], [b]) => a.localeCompare(b))
                 .map(([id, r]) => [
-                  REGION_NAMES[id] ?? id,
+                  REGIONS[id]?.name ?? id,
                   price.format(r.price),
                   mw.format(r.demand),
                   `${r.netInterchange > 0 ? "Exporting" : "Importing"} ${mw.format(Math.abs(r.netInterchange))}`,
@@ -133,17 +116,6 @@ export function LiveTable() {
         </>
       )}
     </div>
-  );
-}
-
-function Banner({ children }: { children: React.ReactNode }) {
-  return (
-    <p
-      role="alert"
-      className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
-    >
-      {children}
-    </p>
   );
 }
 

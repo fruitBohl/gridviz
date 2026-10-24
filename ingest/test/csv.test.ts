@@ -43,6 +43,12 @@ describe("parseAemoCsv", () => {
     expect(tables.get("DISPATCH.REGIONSUM")!.rows).toHaveLength(1);
   });
 
+  test("keep limits parsing to the listed tables and columns", () => {
+    const tables = parseAemoCsv(text, new Map([["DISPATCH.PRICE", ["REGIONID", "RRP", "NOTACOLUMN"]]]));
+    expect([...tables.keys()]).toEqual(["DISPATCH.PRICE"]);
+    expect(tables.get("DISPATCH.PRICE")!.rows[1]).toStrictEqual({ REGIONID: "SA1", RRP: "-5.22" });
+  });
+
   test("a D row without its I row is an error", () => {
     expect(() => parseAemoCsv("D,DISPATCH,PRICE,5,x")).toThrow("before its I row");
   });

@@ -1,5 +1,6 @@
 import { strFromU8, unzipSync } from "fflate";
-import { parseAemoCsv } from "./csv";
+import { parseAemoCsv, type Table } from "./csv";
+import { SUSPENSION_REGIMES, type SuspensionRegime } from "./flags";
 import { AemoFormatError, DISPATCHIS_TABLES, NEM_REGIONS, readTable } from "./schema";
 
 export type RegionInterval = {
@@ -7,6 +8,10 @@ export type RegionInterval = {
   demand: number; // TOTALDEMAND, MW
   availableGeneration: number; // MW
   netInterchange: number; // MW, positive = exporting
+  /** APCFLAG bits, only when non-zero; see PRICE_FLAGS in flags.ts. */
+  priceFlags?: number;
+  /** The market is suspended in this region; see SUSPENSION_REGIMES in flags.ts. */
+  suspension?: SuspensionRegime;
 };
 
 export type InterconnectorInterval = {
@@ -20,6 +25,8 @@ export type DispatchInterval = {
   t: string; // interval end, market time (AEST, UTC+10)
   regions: Record<string, RegionInterval>;
   interconnectors: Record<string, InterconnectorInterval>;
+  /** AEMO ran an intervention: price is from the pricing run, quantities from what was physically dispatched. */
+  intervention?: true;
 };
 
 type Run = { SETTLEMENTDATE: string; INTERVENTION: "0" | "1" };
@@ -41,8 +48,11 @@ function pick<R extends Run>(rows: R[], id: (row: R) => string, prefer: "0" | "1
   return chosen;
 }
 
-export function parseDispatchIsCsv(text: string): DispatchInterval[] {
-  const tables = parseAemoCsv(text);
+/**
+ * Needs the PRICE, REGIONSUM and INTERCONNECTORRES tables. DispatchIS files hold all three; the
+ * MMSDM monthly archive has one table per file, so parse each and merge the maps first.
+ */
+export function buildIntervals(tables: Map<string, Table>): DispatchInterval[] {
   const intervals = new Map<string, DispatchInterval>();
   const interval = (t: string) => {
     let found = intervals.get(t);
@@ -53,12 +63,16 @@ export function parseDispatchIsCsv(text: string): DispatchInterval[] {
     return found;
   };
 
+  const priceRows = readTable(tables, DISPATCHIS_TABLES.price);
+  const sumRows = readTable(tables, DISPATCHIS_TABLES.regionSum);
+  const flowRows = readTable(tables, DISPATCHIS_TABLES.interconnector);
+
   const prices = pick(
-    readTable(tables, DISPATCHIS_TABLES.price).filter((r) => r.INTERVENTION === "0"),
+    priceRows.filter((r) => r.INTERVENTION === "0"),
     (r) => r.REGIONID,
     "0",
   );
-  const sums = pick(readTable(tables, DISPATCHIS_TABLES.regionSum), (r) => r.REGIONID, "1");
+  const sums = pick(sumRows, (r) => r.REGIONID, "1");
 
   for (const row of sums.values()) {
     const price = prices.get(`${row.SETTLEMENTDATE}|${row.REGIONID}`);
@@ -68,16 +82,22 @@ export function parseDispatchIsCsv(text: string): DispatchInterval[] {
       demand: row.TOTALDEMAND,
       availableGeneration: row.AVAILABLEGENERATION,
       netInterchange: row.NETINTERCHANGE,
+      ...(price.APCFLAG !== 0 && { priceFlags: price.APCFLAG }),
+      ...(price.MARKETSUSPENDEDFLAG !== "0" && { suspension: SUSPENSION_REGIMES[price.MARKETSUSPENDEDFLAG] }),
     };
   }
 
-  const flows = pick(readTable(tables, DISPATCHIS_TABLES.interconnector), (r) => r.INTERCONNECTORID, "1");
+  const flows = pick(flowRows, (r) => r.INTERCONNECTORID, "1");
   for (const row of flows.values()) {
     interval(row.SETTLEMENTDATE).interconnectors[row.INTERCONNECTORID] = {
       mwFlow: row.MWFLOW,
       exportLimit: row.EXPORTLIMIT,
       importLimit: row.IMPORTLIMIT,
     };
+  }
+
+  for (const row of [...priceRows, ...sumRows, ...flowRows]) {
+    if (row.INTERVENTION === "1") interval(row.SETTLEMENTDATE).intervention = true;
   }
 
   for (const { t, regions, interconnectors } of intervals.values()) {
@@ -87,6 +107,10 @@ export function parseDispatchIsCsv(text: string): DispatchInterval[] {
   }
 
   return [...intervals.values()].sort((a, b) => a.t.localeCompare(b.t));
+}
+
+export function parseDispatchIsCsv(text: string): DispatchInterval[] {
+  return buildIntervals(parseAemoCsv(text));
 }
 
 export function parseDispatchIsZip(zip: Uint8Array): DispatchInterval[] {
