@@ -47,7 +47,13 @@ next-env.d.ts
 # AWS Agent Toolkit skills: copied locally, see README
 .claude/skills/
 .claude/additional_context
+.claude/plans
 
 # misc
 HANDOVER.md
 PLAN.md
+
+# ingest Lambda build output, local ingest output, SAM build dir
+/ingest/dist/
+/public/data/
+.aws-sam/
