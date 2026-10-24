@@ -27,7 +27,16 @@ test("a valid file parses", () => {
 describe("table structure", () => {
   test("a table version bump", () => {
     const err = formatError(dispatchCsv(t, { versions: { REGIONSUM: 10 } }));
-    expect(err.message).toContain("DISPATCH.REGIONSUM: AEMO sent version 10, the parser expects 9");
+    expect(err.message).toContain("DISPATCH.REGIONSUM: AEMO sent version 10, the parser accepts 8 or 9");
+  });
+
+  test("REGIONSUM v8, as in the 2024 MMSDM archive, is accepted", () => {
+    expect(parseDispatchIsCsv(dispatchCsv(t, { versions: { REGIONSUM: 8 } }))).toHaveLength(1);
+  });
+
+  test("an older REGIONSUM version is rejected", () => {
+    const err = formatError(dispatchCsv(t, { versions: { REGIONSUM: 7 } }));
+    expect(err.message).toContain("DISPATCH.REGIONSUM: AEMO sent version 7, the parser accepts 8 or 9");
   });
 
   test("a missing table", () => {

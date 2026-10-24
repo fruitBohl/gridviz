@@ -1,5 +1,5 @@
 import { strFromU8, unzipSync } from "fflate";
-import { parseAemoCsv } from "./csv";
+import { parseAemoCsv, type Table } from "./csv";
 import { AemoFormatError, DISPATCHIS_TABLES, NEM_REGIONS, readTable } from "./schema";
 
 export type RegionInterval = {
@@ -41,8 +41,11 @@ function pick<R extends Run>(rows: R[], id: (row: R) => string, prefer: "0" | "1
   return chosen;
 }
 
-export function parseDispatchIsCsv(text: string): DispatchInterval[] {
-  const tables = parseAemoCsv(text);
+/**
+ * Needs the PRICE, REGIONSUM and INTERCONNECTORRES tables. DispatchIS files hold all three; the
+ * MMSDM monthly archive has one table per file, so parse each and merge the maps first.
+ */
+export function buildIntervals(tables: Map<string, Table>): DispatchInterval[] {
   const intervals = new Map<string, DispatchInterval>();
   const interval = (t: string) => {
     let found = intervals.get(t);
@@ -87,6 +90,10 @@ export function parseDispatchIsCsv(text: string): DispatchInterval[] {
   }
 
   return [...intervals.values()].sort((a, b) => a.t.localeCompare(b.t));
+}
+
+export function parseDispatchIsCsv(text: string): DispatchInterval[] {
+  return buildIntervals(parseAemoCsv(text));
 }
 
 export function parseDispatchIsZip(zip: Uint8Array): DispatchInterval[] {

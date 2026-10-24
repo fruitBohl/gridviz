@@ -56,13 +56,16 @@ const interconnectorRow = z.object({
   IMPORTLIMIT: aemoNumber(),
 });
 
-type TableSpec<S extends z.ZodType> = { key: string; version: number; row: S };
+type TableSpec<S extends z.ZodType> = { key: string; versions: number[]; row: S };
 
-/** EMMS data model table versions, checked 2026-10-24. A new version can rename or drop columns. */
+/**
+ * EMMS data model table versions, checked 2026-10-24. A new version can rename or drop columns.
+ * REGIONSUM v8 is in the MMSDM monthly archive for 2024; current DispatchIS reports send v9.
+ */
 export const DISPATCHIS_TABLES = {
-  price: { key: "DISPATCH.PRICE", version: 5, row: priceRow },
-  regionSum: { key: "DISPATCH.REGIONSUM", version: 9, row: regionSumRow },
-  interconnector: { key: "DISPATCH.INTERCONNECTORRES", version: 3, row: interconnectorRow },
+  price: { key: "DISPATCH.PRICE", versions: [5], row: priceRow },
+  regionSum: { key: "DISPATCH.REGIONSUM", versions: [8, 9], row: regionSumRow },
+  interconnector: { key: "DISPATCH.INTERCONNECTORRES", versions: [3], row: interconnectorRow },
 } satisfies Record<string, TableSpec<z.ZodType>>;
 
 /** AEMO adds columns in data model releases, so unknown columns are allowed (Zod drops them). */
@@ -72,9 +75,9 @@ export function readTable<S extends z.ZodType>(
 ): z.output<S>[] {
   const table = tables.get(spec.key);
   if (!table) throw new AemoFormatError(`${spec.key}: table not found`);
-  if (table.version !== spec.version) {
+  if (!spec.versions.includes(table.version)) {
     throw new AemoFormatError(
-      `${spec.key}: AEMO sent version ${table.version}, the parser expects ${spec.version}. ` +
+      `${spec.key}: AEMO sent version ${table.version}, the parser accepts ${spec.versions.join(" or ")}. ` +
         "Check the EMMS data model release notes, then update ingest/src/schema.ts",
     );
   }

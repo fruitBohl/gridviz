@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseDispatchIsCsv, parseDispatchIsZip } from "../src/dispatchis";
+import { strFromU8, unzipSync } from "fflate";
+import { parseAemoCsv } from "../src/csv";
+import { buildIntervals, parseDispatchIsCsv, parseDispatchIsZip } from "../src/dispatchis";
 import { dispatchCsv, validRows } from "./helpers";
 
 // Real file downloaded from NEMWeb on 2026-10-24 (interval ending 15:05 AEST)
@@ -34,6 +36,54 @@ describe("parseDispatchIsZip on a real NEMWeb file", () => {
       importLimit: -1119.77,
     });
     expect(interval.interconnectors["NSW1-SA1"].mwFlow).toBe(-135.82);
+  });
+});
+
+test("buildIntervals on the fixture's tables matches parseDispatchIsZip", () => {
+  const zip = new Uint8Array(readFileSync(FIXTURE));
+  const [csv] = Object.values(unzipSync(zip));
+  expect(buildIntervals(parseAemoCsv(strFromU8(csv)))).toEqual(parseDispatchIsZip(zip));
+});
+
+// Real rows for the interval ending 2024-10-01 00:05, cut from the October 2024 MMSDM monthly archive
+describe("buildIntervals on MMSDM single-table files", () => {
+  const read = (table: string) =>
+    parseAemoCsv(readFileSync(join(import.meta.dir, `fixtures/mmsdm/${table}_20241001_0005.CSV`), "utf8"));
+  const tables = new Map([
+    ...read("DISPATCHPRICE"),
+    ...read("DISPATCHREGIONSUM"),
+    ...read("DISPATCHINTERCONNECTORRES"),
+  ]);
+
+  test("the three files merge into one interval with all five regions", () => {
+    expect(tables.get("DISPATCH.REGIONSUM")!.version).toBe(8);
+    const [interval, ...rest] = buildIntervals(tables);
+    expect(rest).toHaveLength(0);
+    expect(interval.t).toBe("2024-10-01T00:05:00+10:00");
+    expect(Object.keys(interval.regions).sort()).toEqual(["NSW1", "QLD1", "SA1", "TAS1", "VIC1"]);
+    expect(interval.regions.NSW1).toEqual({
+      price: 104.1,
+      demand: 7403.93,
+      availableGeneration: 9577.42,
+      netInterchange: -611.27,
+    });
+  });
+
+  test("interconnectors as they were in 2024, before NSW1-SA1", () => {
+    const [interval] = buildIntervals(tables);
+    expect(Object.keys(interval.interconnectors).sort()).toEqual([
+      "N-Q-MNSP1",
+      "NSW1-QLD1",
+      "T-V-MNSP1",
+      "V-S-MNSP1",
+      "V-SA",
+      "VIC1-NSW1",
+    ]);
+    expect(interval.interconnectors["NSW1-QLD1"]).toEqual({ mwFlow: 302.24, exportLimit: 381.87, importLimit: -842.11 });
+  });
+
+  test("a single table on its own is not enough", () => {
+    expect(() => buildIntervals(read("DISPATCHREGIONSUM"))).toThrow("DISPATCH.PRICE: table not found");
   });
 });
 
