@@ -1,0 +1,130 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: gridviz NEM data (S3 data bucket + scheduled NEMWeb ingest Lambda)
+
+Parameters:
+  DistributionId:
+    Type: String
+    Default: E2JVBFPXUKXCQW
+    Description: CloudFront distribution (gridviz-site) allowed to read data/*
+  ScheduleState:
+    Type: String
+    Default: ENABLED
+    AllowedValues: [ENABLED, DISABLED]
+
+Resources:
+  DataBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-raw
+            Status: Enabled
+            Prefix: raw/
+            ExpirationInDays: 90
+          - Id: abort-incomplete-uploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+
+  DataBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DataBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub '${DataBucket.Arn}/data/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${DistributionId}'
+
+  IngestLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/gridviz-ingest
+      RetentionInDays: 14
+
+  IngestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: gridviz-ingest
+      CodeUri: ../ingest/dist
+      Handler: index.handler
+      Runtime: nodejs24.x
+      Architectures: [arm64]
+      MemorySize: 256
+      Timeout: 120
+      ReservedConcurrentExecutions: 1
+      LoggingConfig:
+        LogGroup: !Ref IngestLogGroup
+      Environment:
+        Variables:
+          DATA_BUCKET: !Ref DataBucket
+          NODE_OPTIONS: --enable-source-maps
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+              Resource: !Sub '${DataBucket.Arn}/*'
+            - Effect: Allow
+              Action: s3:ListBucket
+              Resource: !GetAtt DataBucket.Arn
+      EventInvokeConfig:
+        MaximumRetryAttempts: 0
+        MaximumEventAgeInSeconds: 240
+      Events:
+        Every5Minutes:
+          Type: ScheduleV2
+          Properties:
+            Name: gridviz-ingest
+            # AEMO publishes each DispatchIS file a few seconds after the 5-minute boundary
+            ScheduleExpression: cron(1/5 * * * ? *)
+            State: !Ref ScheduleState
+            RetryPolicy:
+              MaximumRetryAttempts: 0
+
+  IngestErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: gridviz-ingest-errors
+      AlarmDescription: >-
+        gridviz-ingest failed in the last 15 minutes. AemoFormatError in /aws/lambda/gridviz-ingest
+        means AEMO changed the DispatchIS format; see ingest/src/schema.ts.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref IngestFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+Outputs:
+  DataBucketName:
+    Value: !Ref DataBucket
+    Export:
+      Name: gridviz-data-bucket-name
+  DataBucketDomain:
+    Value: !GetAtt DataBucket.RegionalDomainName
+    Export:
+      Name: gridviz-data-bucket-domain
+  IngestFunctionName:
+    Value: !Ref IngestFunction
