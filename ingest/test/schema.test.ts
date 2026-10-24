@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { strToU8, zipSync } from "fflate";
 import { parseDispatchIsCsv, parseDispatchIsZip } from "../src/dispatchis";
-import { aemoTimeToIso, AemoFormatError } from "../src/schema";
+import { aemoTimeToIso, AemoFormatError, toCents } from "../src/schema";
 import { COLUMNS, dispatchCsv, validRows } from "./helpers";
 
 const t = "2026/10/24 15:05:00";
@@ -93,4 +93,19 @@ test("a zip without a CSV", () => {
 test("aemoTimeToIso", () => {
   expect(aemoTimeToIso("2026/10/25 00:00:00")).toBe("2026-10-25T00:00:00+10:00");
   expect(() => aemoTimeToIso("2026-10-25 00:00")).toThrow(AemoFormatError);
+});
+
+// Real RRPs from MMSDM that the earlier Math.round(v * 100) / 100 got a cent wrong, compared with
+// AEMO's aggregated price and demand data
+test.each([
+  [-44.465, -44.47],
+  [80.945, 80.95],
+  [2.195, 2.2],
+  [162.605, 162.61],
+  [-3.505, -3.51],
+  [17500.00229, 17500],
+  [-0.004, 0],
+  [0, 0],
+])("toCents(%p) is %p", (value, cents) => {
+  expect(Object.is(toCents(value), cents)).toBe(true);
 });

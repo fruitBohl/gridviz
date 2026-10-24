@@ -19,14 +19,17 @@ const aemoTime = z
   .regex(/^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}$/, "expected YYYY/MM/DD HH:MM:SS")
   .transform(aemoTimeToIso);
 
+/**
+ * Rounds half away from zero, as AEMO's own aggregated price and demand data does. Values like
+ * 80.945 sit just below the half in binary (8094.4999... cents), so trim to 15 significant digits first.
+ */
+export function toCents(v: number): number {
+  const cents = Math.round(Number((Math.abs(v) * 100).toPrecision(15)));
+  return v < 0 && cents !== 0 ? -cents / 100 : cents / 100;
+}
+
 const aemoNumber = (check = z.number()) =>
-  z
-    .string()
-    .trim()
-    .min(1, "empty value")
-    .transform(Number)
-    .pipe(check)
-    .transform((v) => Math.round(v * 100) / 100);
+  z.string().trim().min(1, "empty value").transform(Number).pipe(check).transform(toCents);
 
 const intervention = z.enum(["0", "1"]);
 
