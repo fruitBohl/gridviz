@@ -9,8 +9,18 @@ export type RegionInterval = {
   netInterchange: number; // MW, positive = exporting
   /** APCFLAG bits, only when non-zero; see PRICE_FLAGS. */
   priceFlags?: number;
-  suspended?: true;
+  /** The market is suspended in this region; see SUSPENSION_REGIMES. */
+  suspension?: SuspensionRegime;
 };
+
+/**
+ * MARKETSUSPENDEDFLAG has no documented values. These match AEMO's MARKET_SUSPEND_REGIME_SUM
+ * PRICING_REGIME for the suspensions of June 2022, 5 Sep 2024 and 23 Mar 2026 (checked 2026-10-24).
+ * "dispatch": prices still come from the dispatch engine. "schedule": AEMO's suspension price
+ * schedule, a 30-minute price applied to each 5-minute interval.
+ */
+export const SUSPENSION_REGIMES = { "1": "dispatch", "2": "schedule" } as const;
+export type SuspensionRegime = (typeof SUSPENSION_REGIMES)[keyof typeof SUSPENSION_REGIMES];
 
 /**
  * APCFLAG bits: how the dispatch price differs from the original price (ROP) the dispatch
@@ -93,7 +103,7 @@ export function buildIntervals(tables: Map<string, Table>): DispatchInterval[] {
       availableGeneration: row.AVAILABLEGENERATION,
       netInterchange: row.NETINTERCHANGE,
       ...(price.APCFLAG !== 0 && { priceFlags: price.APCFLAG }),
-      ...(price.MARKETSUSPENDEDFLAG === "1" && { suspended: true }),
+      ...(price.MARKETSUSPENDEDFLAG !== "0" && { suspension: SUSPENSION_REGIMES[price.MARKETSUSPENDEDFLAG] }),
     };
   }
 

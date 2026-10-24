@@ -1,4 +1,4 @@
-import { PRICE_FLAGS, type DispatchInterval } from "./dispatchis";
+import { PRICE_FLAGS, type DispatchInterval, type SuspensionRegime } from "./dispatchis";
 import type { DayFile } from "./output";
 
 const AEST_MS = 10 * 60 * 60 * 1000;
@@ -16,7 +16,7 @@ export function expectedTimes(date: string): string[] {
 export type OddityKind = "intervention" | "suspended" | keyof typeof PRICE_FLAGS;
 
 /** Consecutive intervals of one kind; `first` and `last` are interval end times. */
-export type OddityRun = { first: string; last: string; intervals: number; regions?: string[] };
+export type OddityRun = { first: string; last: string; intervals: number; regions?: string[]; regime?: SuspensionRegime };
 
 export type OddityReport = {
   from: string;
@@ -27,16 +27,22 @@ export type OddityReport = {
   interconnectors: Record<string, { first: string; last: string; intervals: number; missingInSpan: number }>;
 };
 
-function activeKinds(interval: DispatchInterval): Map<OddityKind, string[]> {
-  const active = new Map<OddityKind, string[]>();
-  if (interval.intervention) active.set("intervention", []);
+type Active = { kind: OddityKind; regime?: SuspensionRegime; regions: string[] };
+
+/** Keyed by kind, plus the regime for suspensions, so a change of regime starts a new run. */
+function activeKinds(interval: DispatchInterval): Map<string, Active> {
+  const active = new Map<string, Active>();
+  const mark = (key: string, kind: OddityKind, region?: string, regime?: SuspensionRegime) => {
+    const found = active.get(key) ?? { kind, regime, regions: [] };
+    if (region) found.regions.push(region);
+    active.set(key, found);
+  };
+  if (interval.intervention) mark("intervention", "intervention");
   for (const [region, r] of Object.entries(interval.regions)) {
-    const kinds: OddityKind[] = [];
-    if (r.suspended) kinds.push("suspended");
+    if (r.suspension) mark(`suspended:${r.suspension}`, "suspended", region, r.suspension);
     for (const [kind, bit] of Object.entries(PRICE_FLAGS) as [OddityKind, number][]) {
-      if ((r.priceFlags ?? 0) & bit) kinds.push(kind);
+      if ((r.priceFlags ?? 0) & bit) mark(kind, kind, region);
     }
-    for (const kind of kinds) active.set(kind, [...(active.get(kind) ?? []), region]);
   }
   return active;
 }
@@ -60,15 +66,16 @@ export function createReport(from: string, to: string) {
   const seenDays = new Set<string>();
   const incompleteDays: OddityReport["incompleteDays"] = [];
   const runs: OddityReport["runs"] = {};
-  const open = new Map<OddityKind, OddityRun & { lastMs: number; regionSet: Set<string> }>();
+  const open = new Map<string, OddityRun & { kind: OddityKind; lastMs: number; regionSet: Set<string> }>();
   const links = new Map<string, { first: string; last: string; intervals: number }>();
 
-  const close = (kind: OddityKind) => {
-    const { first, last, intervals, regionSet } = open.get(kind)!;
+  const close = (key: string) => {
+    const { kind, first, last, intervals, regionSet, regime } = open.get(key)!;
     const run: OddityRun = { first, last, intervals };
     if (regionSet.size > 0) run.regions = [...regionSet].sort();
+    if (regime) run.regime = regime;
     (runs[kind] ??= []).push(run);
-    open.delete(kind);
+    open.delete(key);
   };
 
   return {
@@ -86,18 +93,19 @@ export function createReport(from: string, to: string) {
       for (const interval of day.intervals) {
         const ms = Date.parse(interval.t);
         const active = activeKinds(interval);
-        for (const kind of [...open.keys()]) {
-          if (!active.has(kind) || open.get(kind)!.lastMs + INTERVAL_MS !== ms) close(kind);
+        for (const key of [...open.keys()]) {
+          if (!active.has(key) || open.get(key)!.lastMs + INTERVAL_MS !== ms) close(key);
         }
-        for (const [kind, regions] of active) {
-          const run = open.get(kind);
+        for (const [key, { kind, regime, regions }] of active) {
+          const run = open.get(key);
           if (run) {
             run.last = interval.t;
             run.lastMs = ms;
             run.intervals++;
             regions.forEach((r) => run.regionSet.add(r));
           } else {
-            open.set(kind, { first: interval.t, last: interval.t, intervals: 1, lastMs: ms, regionSet: new Set(regions) });
+            const start = { first: interval.t, last: interval.t, intervals: 1, lastMs: ms, regionSet: new Set(regions) };
+            open.set(key, { kind, ...start, ...(regime && { regime }) });
           }
         }
 
@@ -114,7 +122,7 @@ export function createReport(from: string, to: string) {
     },
 
     finish(): OddityReport {
-      for (const kind of [...open.keys()]) close(kind);
+      for (const key of [...open.keys()]) close(key);
       const days: string[] = [];
       for (let ms = Date.parse(`${from}T00:00:00Z`); ms <= Date.parse(`${to}T00:00:00Z`); ms += 86_400_000) {
         days.push(new Date(ms).toISOString().slice(0, 10));

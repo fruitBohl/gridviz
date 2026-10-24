@@ -69,7 +69,7 @@ describe("field values", () => {
     ["a malformed interconnector ID", "interconnector", { INTERCONNECTORID: "vic sa" }, "interconnector ID"],
     ["a non-integer APCFLAG", "price", { APCFLAG: "0.5" }, "bit field"],
     ["an APCFLAG with an unknown bit", "price", { APCFLAG: "32" }, "APCFLAG"],
-    ["an unknown MARKETSUSPENDEDFLAG", "price", { MARKETSUSPENDEDFLAG: "Y" }, "MARKETSUSPENDEDFLAG"],
+    ["an unknown MARKETSUSPENDEDFLAG", "price", { MARKETSUSPENDEDFLAG: "3" }, "MARKETSUSPENDEDFLAG"],
   ] as const)("%s", (_, key, overrides, expected) => {
     expect(formatError(dispatchCsv(t, withRow(key, overrides))).message).toContain(expected);
   });

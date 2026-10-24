@@ -36,7 +36,7 @@ const priceRow = z.object({
   INTERVENTION: intervention,
   RRP: aemoNumber(z.number().min(-1000, "below the -$1000/MWh market price floor")),
   APCFLAG: z.string().regex(/^\d+$/, "expected a bit field").transform(Number).pipe(z.number().max(31)),
-  MARKETSUSPENDEDFLAG: z.enum(["0", "1"]),
+  MARKETSUSPENDEDFLAG: z.enum(["0", "1", "2"]),
 });
 
 const regionSumRow = z.object({

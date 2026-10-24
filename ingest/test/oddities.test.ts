@@ -66,7 +66,8 @@ describe("runs of flagged intervals", () => {
       if (n >= 286) return { ...i, intervention: true };
       if (n === 100) return interval(i.t, {}, { SA1: { priceFlags: 4 } });
       if (n === 101) return interval(i.t, {}, { VIC1: { priceFlags: 5 } });
-      if (n === 200) return interval(i.t, {}, { TAS1: { suspended: true } });
+      if (n === 200) return interval(i.t, {}, { TAS1: { suspension: "schedule" } });
+      if (n === 201) return interval(i.t, {}, { TAS1: { suspension: "dispatch" } });
       return i;
     }),
   );
@@ -88,9 +89,10 @@ describe("runs of flagged intervals", () => {
     ]);
   });
 
-  test("market suspension", () => {
+  test("a change of suspension pricing regime starts a new run", () => {
     expect(runs.suspended).toEqual([
-      { first: "2026-10-01T16:45:00+10:00", last: "2026-10-01T16:45:00+10:00", intervals: 1, regions: ["TAS1"] },
+      { first: "2026-10-01T16:45:00+10:00", last: "2026-10-01T16:45:00+10:00", intervals: 1, regions: ["TAS1"], regime: "schedule" },
+      { first: "2026-10-01T16:50:00+10:00", last: "2026-10-01T16:50:00+10:00", intervals: 1, regions: ["TAS1"], regime: "dispatch" },
     ]);
   });
 });

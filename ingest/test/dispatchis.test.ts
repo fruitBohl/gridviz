@@ -94,6 +94,27 @@ describe("buildIntervals on MMSDM single-table files", () => {
   });
 });
 
+// Real rows from the March 2026 MMSDM archive: NSW1's market suspension with schedule pricing
+// started at 11:45 on 2026-03-23 (AEMO suspension 202603231145.1)
+describe("buildIntervals on the 2026-03-23 NSW market suspension", () => {
+  const read = (table: string) =>
+    parseAemoCsv(readFileSync(join(import.meta.dir, `fixtures/mmsdm/${table}_202603.CSV`), "utf8"));
+  const [start, later] = buildIntervals(
+    new Map([...read("DISPATCHPRICE"), ...read("DISPATCHREGIONSUM"), ...read("DISPATCHINTERCONNECTORRES")]),
+  );
+
+  test("NSW1 is suspended with schedule pricing; the other regions are not", () => {
+    expect(start.t).toBe("2026-03-23T11:45:00+10:00");
+    expect(start.regions.NSW1.suspension).toBe("schedule");
+    expect(start.regions.QLD1).not.toContainKey("suspension");
+  });
+
+  test("VIC1's price was scaled by a loss factor during the suspension", () => {
+    expect(later.t).toBe("2026-03-23T13:40:00+10:00");
+    expect(later.regions.VIC1.priceFlags).toBe(16);
+  });
+});
+
 describe("interventions", () => {
   const t = "2026/10/24 15:05:00";
   const valid = validRows(t);
@@ -154,10 +175,11 @@ describe("price flags", () => {
     expect(regions.NSW1).not.toContainKey("priceFlags");
   });
 
-  test("a market suspension", () => {
-    const regions = withSa({ MARKETSUSPENDEDFLAG: "1" });
-    expect(regions.SA1.suspended).toBe(true);
-    expect(regions.NSW1).not.toContainKey("suspended");
+  test("a market suspension keeps its pricing regime", () => {
+    expect(withSa({ MARKETSUSPENDEDFLAG: "1" }).SA1.suspension).toBe("dispatch");
+    const regions = withSa({ MARKETSUSPENDEDFLAG: "2" });
+    expect(regions.SA1.suspension).toBe("schedule");
+    expect(regions.NSW1).not.toContainKey("suspension");
   });
 
   test("flags come from the pricing run, not the intervention run", () => {
