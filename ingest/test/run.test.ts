@@ -1,11 +1,12 @@
 import { beforeEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { strToU8, zipSync } from "fflate";
 import type { ReportFile } from "../src/nemweb";
 import type { DayFile, Latest } from "../src/output";
 import { run } from "../src/run";
+import { AemoFormatError } from "../src/schema";
 import type { Store } from "../src/store";
+import { dispatchZip } from "./helpers";
 
 class MemoryStore implements Store {
   objects = new Map<string, unknown>();
@@ -20,24 +21,14 @@ class MemoryStore implements Store {
   }
 }
 
-// A minimal DispatchIS zip for one interval ending at `hhmm` on `date` (AEST)
-function dispatchZip(date: string, hhmm: string, price: number): Uint8Array {
-  const t = `"${date.replaceAll("-", "/")} ${hhmm.slice(0, 2)}:${hhmm.slice(2)}:00"`;
-  const csv = [
-    "I,DISPATCH,PRICE,5,SETTLEMENTDATE,REGIONID,INTERVENTION,RRP",
-    `D,DISPATCH,PRICE,5,${t},NSW1,0,${price}`,
-    "I,DISPATCH,REGIONSUM,9,SETTLEMENTDATE,REGIONID,INTERVENTION,TOTALDEMAND,AVAILABLEGENERATION,NETINTERCHANGE",
-    `D,DISPATCH,REGIONSUM,9,${t},NSW1,0,5000,9000,0`,
-    "I,DISPATCH,INTERCONNECTORRES,3,SETTLEMENTDATE,INTERCONNECTORID,INTERVENTION,MWFLOW,EXPORTLIMIT,IMPORTLIMIT",
-  ].join("\n");
-  return zipSync({ "PUBLIC_DISPATCHIS.CSV": strToU8(csv) });
-}
-
 const file = (date: string, hhmm: string): ReportFile => ({
   name: `PUBLIC_DISPATCHIS_${date.replaceAll("-", "")}${hhmm}_1.zip`,
   url: `https://example.test/${date}${hhmm}.zip`,
   settlementDate: `${date}T${hhmm.slice(0, 2)}:${hhmm.slice(2)}:00+10:00`,
 });
+
+// "2026-10-24T00:10:00+10:00" -> "2026/10/24 00:10:00"
+const aemoTime = (iso: string) => `${iso.slice(0, 10).replaceAll("-", "/")} ${iso.slice(11, 19)}`;
 
 let store: MemoryStore;
 let listing: ReportFile[];
@@ -48,7 +39,7 @@ const options = () => ({
   fetchListing: async () => listing,
   fetchFile: async (f: ReportFile) => {
     fetched.push(f.settlementDate);
-    return dispatchZip(f.settlementDate.slice(0, 10), f.settlementDate.slice(11, 16).replace(":", ""), 50);
+    return dispatchZip(aemoTime(f.settlementDate));
   },
   now: () => new Date("2026-10-24T05:01:00Z"),
 });
@@ -137,4 +128,27 @@ test("the real fixture runs end to end", async () => {
   expect(result.settlementDate).toBe("2026-10-24T15:05:00+10:00");
   const latest = (await store.getJson<Latest>("data/latest.json"))!;
   expect(Object.keys(latest.regions)).toHaveLength(5);
+});
+
+test("a file whose contents don't match its name is a format error", async () => {
+  const wrong = { ...options(), fetchFile: async () => dispatchZip("2026/10/24 09:00:00") };
+  const err = await run(wrong).catch((e) => e);
+  expect(err).toBeInstanceOf(AemoFormatError);
+  expect(err.message).toBe(
+    "PUBLIC_DISPATCHIS_202610240005_1.zip: expected one interval ending 2026-10-24T00:05:00+10:00, found [2026-10-24T09:00:00+10:00]",
+  );
+});
+
+test("format errors name the file and nothing is written", async () => {
+  const bad = { ...options(), fetchFile: async (f: ReportFile) => dispatchZip(aemoTime(f.settlementDate), { versions: { PRICE: 6 } }) };
+  const err = await run(bad).catch((e) => e);
+  expect(err).toBeInstanceOf(AemoFormatError);
+  expect(err.message).toStartWith("PUBLIC_DISPATCHIS_2026102400");
+  expect(err.message).toContain("DISPATCH.PRICE: AEMO sent version 6");
+  expect([...store.objects.keys()].some((k) => k.startsWith("data/"))).toBe(false);
+});
+
+test("an empty listing is a format error", async () => {
+  listing = [];
+  await expect(run(options())).rejects.toBeInstanceOf(AemoFormatError);
 });

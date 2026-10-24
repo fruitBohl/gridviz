@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { strToU8, zipSync } from "fflate";
-import { aemoTimeToIso, parseDispatchIsCsv, parseDispatchIsZip } from "../src/dispatchis";
+import { parseDispatchIsCsv, parseDispatchIsZip } from "../src/dispatchis";
+import { dispatchCsv, validRows } from "./helpers";
 
 // Real file downloaded from NEMWeb on 2026-10-24 (interval ending 15:05 AEST)
 const FIXTURE = join(import.meta.dir, "fixtures/PUBLIC_DISPATCHIS_202610241505_0000000544621747.zip");
@@ -38,18 +38,24 @@ describe("parseDispatchIsZip on a real NEMWeb file", () => {
 });
 
 describe("interventions", () => {
-  const t = '"2026/10/24 15:05:00"';
-  const csv = [
-    "I,DISPATCH,PRICE,5,SETTLEMENTDATE,REGIONID,INTERVENTION,RRP",
-    `D,DISPATCH,PRICE,5,${t},SA1,0,100`,
-    `D,DISPATCH,PRICE,5,${t},SA1,1,999`,
-    "I,DISPATCH,REGIONSUM,9,SETTLEMENTDATE,REGIONID,INTERVENTION,TOTALDEMAND,AVAILABLEGENERATION,NETINTERCHANGE",
-    `D,DISPATCH,REGIONSUM,9,${t},SA1,0,1000,3000,10`,
-    `D,DISPATCH,REGIONSUM,9,${t},SA1,1,1100,3100,20`,
-    "I,DISPATCH,INTERCONNECTORRES,3,SETTLEMENTDATE,INTERCONNECTORID,INTERVENTION,MWFLOW,EXPORTLIMIT,IMPORTLIMIT",
-    `D,DISPATCH,INTERCONNECTORRES,3,${t},V-SA,1,50,200,-200`,
-    `D,DISPATCH,INTERCONNECTORRES,3,${t},V-SA,0,40,200,-200`,
-  ].join("\n");
+  const t = "2026/10/24 15:05:00";
+  const valid = validRows(t);
+  const sa = (rows: Record<string, string>[], overrides: Record<string, string>) => {
+    const row = rows.find((r) => r.REGIONID === "SA1")!;
+    return { ...row, ...overrides };
+  };
+  const csv = dispatchCsv(t, {
+    price: [...valid.price.filter((r) => r.REGIONID !== "SA1"), sa(valid.price, { RRP: "100" }), sa(valid.price, { INTERVENTION: "1", RRP: "999" })],
+    regionSum: [
+      ...valid.regionSum.filter((r) => r.REGIONID !== "SA1"),
+      sa(valid.regionSum, { TOTALDEMAND: "1000" }),
+      sa(valid.regionSum, { INTERVENTION: "1", TOTALDEMAND: "1100" }),
+    ],
+    interconnector: [
+      { ...valid.interconnector[0], INTERVENTION: "1", MWFLOW: "50" },
+      { ...valid.interconnector[0], INTERVENTION: "0", MWFLOW: "40" },
+    ],
+  });
   const [interval] = parseDispatchIsCsv(csv);
 
   test("price comes from the pricing run (INTERVENTION=0)", () => {
@@ -62,30 +68,21 @@ describe("interventions", () => {
   });
 });
 
-describe("format changes fail loudly", () => {
-  test("a missing column throws", () => {
-    const csv = [
-      "I,DISPATCH,PRICE,5,SETTLEMENTDATE,REGIONID,INTERVENTION,RRP",
-      'D,DISPATCH,PRICE,5,"2026/10/24 15:05:00",SA1,0,100',
-      "I,DISPATCH,REGIONSUM,9,SETTLEMENTDATE,REGIONID,INTERVENTION,TOTALDEMAND",
-      'D,DISPATCH,REGIONSUM,9,"2026/10/24 15:05:00",SA1,0,1000',
-      "I,DISPATCH,INTERCONNECTORRES,3,SETTLEMENTDATE,INTERCONNECTORID,INTERVENTION",
-    ].join("\n");
-    expect(() => parseDispatchIsCsv(csv)).toThrow("Missing column AVAILABLEGENERATION");
+describe("incomplete intervals fail loudly", () => {
+  const t = "2026/10/24 15:05:00";
+  const valid = validRows(t);
+
+  test("a region missing from REGIONSUM", () => {
+    const csv = dispatchCsv(t, { regionSum: valid.regionSum.filter((r) => r.REGIONID !== "TAS1") });
+    expect(() => parseDispatchIsCsv(csv)).toThrow("no data for TAS1");
   });
 
-  test("a missing table throws", () => {
-    expect(() => parseDispatchIsCsv("I,DISPATCH,PRICE,5,SETTLEMENTDATE")).toThrow(
-      "Table DISPATCH.REGIONSUM not found",
-    );
+  test("a region with demand but no price", () => {
+    const csv = dispatchCsv(t, { price: valid.price.filter((r) => r.REGIONID !== "QLD1") });
+    expect(() => parseDispatchIsCsv(csv)).toThrow("No pricing-run price for QLD1");
   });
 
-  test("a zip without a CSV throws", () => {
-    expect(() => parseDispatchIsZip(zipSync({ "readme.txt": strToU8("hi") }))).toThrow("No CSV");
+  test("no interconnector rows", () => {
+    expect(() => parseDispatchIsCsv(dispatchCsv(t, { interconnector: [] }))).toThrow("no rows");
   });
-});
-
-test("aemoTimeToIso", () => {
-  expect(aemoTimeToIso("2026/10/25 00:00:00")).toBe("2026-10-25T00:00:00+10:00");
-  expect(() => aemoTimeToIso("2026-10-25 00:00")).toThrow();
 });

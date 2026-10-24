@@ -10,6 +10,7 @@ import {
   type DayFile,
   type Latest,
 } from "./output";
+import { AemoFormatError } from "./schema";
 import type { Store } from "./store";
 
 export type RunOptions = {
@@ -46,6 +47,24 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   return results;
 }
 
+// Each DispatchIS file holds exactly one interval, the one its name says. Format errors
+// are re-thrown with the file name so the Lambda log points at the file to inspect.
+function parseFile(file: ReportFile, zip: Uint8Array): DispatchInterval[] {
+  try {
+    const intervals = parseDispatchIsZip(zip);
+    const times = intervals.map((i) => i.t);
+    if (times.length !== 1 || times[0] !== file.settlementDate) {
+      throw new AemoFormatError(`expected one interval ending ${file.settlementDate}, found [${times.join(", ")}]`);
+    }
+    return intervals;
+  } catch (err) {
+    if (err instanceof AemoFormatError) {
+      throw new AemoFormatError(`${file.name}: ${err.message}`, { cause: err });
+    }
+    throw err;
+  }
+}
+
 // Catch up on every listed file newer than data/latest.json, then rewrite the touched day
 // files and latest.json. latest.json is written last, so a failed run is redone next time.
 export async function run({
@@ -60,7 +79,9 @@ export async function run({
 }: RunOptions): Promise<RunResult> {
   const latest = await store.getJson<Latest>(LATEST_KEY);
   const listing = await fetchListing();
-  if (listing.length === 0) throw new Error("NEMWeb listing has no DispatchIS files");
+  if (listing.length === 0) {
+    throw new AemoFormatError("NEMWeb listing has no DispatchIS files: has the page or file naming changed?");
+  }
 
   // First run (or no latest.json): seed from the start of the newest file's trading day
   const newest = listing[listing.length - 1].settlementDate;
@@ -80,7 +101,7 @@ export async function run({
   const parsed = await mapLimit(files, concurrency, async (file) => {
     const zip = await fetchFile(file);
     if (archiveRaw) await store.putBytes(rawKey(file), zip, "application/zip");
-    return parseDispatchIsZip(zip);
+    return parseFile(file, zip);
   });
   const intervals = parsed.flat();
 
