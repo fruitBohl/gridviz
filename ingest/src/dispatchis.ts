@@ -1,5 +1,6 @@
 import { strFromU8, unzipSync } from "fflate";
 import { parseAemoCsv, type Table } from "./csv";
+import { SUSPENSION_REGIMES, type SuspensionRegime } from "./flags";
 import { AemoFormatError, DISPATCHIS_TABLES, NEM_REGIONS, readTable } from "./schema";
 
 export type RegionInterval = {
@@ -7,32 +8,11 @@ export type RegionInterval = {
   demand: number; // TOTALDEMAND, MW
   availableGeneration: number; // MW
   netInterchange: number; // MW, positive = exporting
-  /** APCFLAG bits, only when non-zero; see PRICE_FLAGS. */
+  /** APCFLAG bits, only when non-zero; see PRICE_FLAGS in flags.ts. */
   priceFlags?: number;
-  /** The market is suspended in this region; see SUSPENSION_REGIMES. */
+  /** The market is suspended in this region; see SUSPENSION_REGIMES in flags.ts. */
   suspension?: SuspensionRegime;
 };
-
-/**
- * MARKETSUSPENDEDFLAG has no documented values. These match AEMO's MARKET_SUSPEND_REGIME_SUM
- * PRICING_REGIME for the suspensions of June 2022, 5 Sep 2024 and 23 Mar 2026 (checked 2026-10-24).
- * "dispatch": prices still come from the dispatch engine. "schedule": AEMO's suspension price
- * schedule, a 30-minute price applied to each 5-minute interval.
- */
-export const SUSPENSION_REGIMES = { "1": "dispatch", "2": "schedule" } as const;
-export type SuspensionRegime = (typeof SUSPENSION_REGIMES)[keyof typeof SUSPENSION_REGIMES];
-
-/**
- * APCFLAG bits: how the dispatch price differs from the original price (ROP) the dispatch
- * algorithm calculated. From AEMO's MMS data model, DISPATCHPRICE, checked 2026-10-24.
- */
-export const PRICE_FLAGS = {
-  administeredPrice: 1, // an administered price cap or floor was binding
-  vollOverride: 2,
-  priceLimit: 4, // the market price cap or floor was binding
-  manualPrice: 8,
-  lossFactorScaling: 16, // price scaled by an inter-regional loss factor
-} as const;
 
 export type InterconnectorInterval = {
   mwFlow: number; // MW, positive = flowing in the direction of the ID (e.g. NSW1 -> QLD1)

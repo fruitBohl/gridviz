@@ -1,51 +1,26 @@
-import { PRICE_FLAGS, type DispatchInterval, type SuspensionRegime } from "./dispatchis";
+import type { EventKind, EventRun } from "./events";
+import { createEventTracker } from "./events";
 import type { DayFile } from "./output";
+import { INTERVAL_MS, toMarketIso } from "./time";
 
-const AEST_MS = 10 * 60 * 60 * 1000;
-const INTERVAL_MS = 5 * 60 * 1000;
 export const INTERVALS_PER_DAY = 288;
-
-const toIso = (ms: number) => `${new Date(ms + AEST_MS).toISOString().slice(0, 19)}+10:00`;
 
 /** Interval end times for a trading day: 00:05 on the day through 00:00 the next day. */
 export function expectedTimes(date: string): string[] {
   const start = Date.parse(`${date}T00:05:00+10:00`);
-  return Array.from({ length: INTERVALS_PER_DAY }, (_, i) => toIso(start + i * INTERVAL_MS));
+  return Array.from({ length: INTERVALS_PER_DAY }, (_, i) => toMarketIso(start + i * INTERVAL_MS));
 }
 
-export type OddityKind = "intervention" | "suspended" | keyof typeof PRICE_FLAGS;
-
-/** Consecutive intervals of one kind; `first` and `last` are interval end times. */
-export type OddityRun = { first: string; last: string; intervals: number; regions?: string[]; regime?: SuspensionRegime };
+export type OddityRun = Omit<EventRun, "kind">;
 
 export type OddityReport = {
   from: string;
   to: string;
   missingDays: string[];
   incompleteDays: { date: string; intervals: number; missing: OddityRun[]; unexpected: string[] }[];
-  runs: Partial<Record<OddityKind, OddityRun[]>>;
+  runs: Partial<Record<EventKind, OddityRun[]>>;
   interconnectors: Record<string, { first: string; last: string; intervals: number; missingInSpan: number }>;
 };
-
-type Active = { kind: OddityKind; regime?: SuspensionRegime; regions: string[] };
-
-/** Keyed by kind, plus the regime for suspensions, so a change of regime starts a new run. */
-function activeKinds(interval: DispatchInterval): Map<string, Active> {
-  const active = new Map<string, Active>();
-  const mark = (key: string, kind: OddityKind, region?: string, regime?: SuspensionRegime) => {
-    const found = active.get(key) ?? { kind, regime, regions: [] };
-    if (region) found.regions.push(region);
-    active.set(key, found);
-  };
-  if (interval.intervention) mark("intervention", "intervention");
-  for (const [region, r] of Object.entries(interval.regions)) {
-    if (r.suspension) mark(`suspended:${r.suspension}`, "suspended", region, r.suspension);
-    for (const [kind, bit] of Object.entries(PRICE_FLAGS) as [OddityKind, number][]) {
-      if ((r.priceFlags ?? 0) & bit) mark(kind, kind, region);
-    }
-  }
-  return active;
-}
 
 function toRuns(times: string[]): OddityRun[] {
   const runs: OddityRun[] = [];
@@ -65,18 +40,8 @@ function toRuns(times: string[]): OddityRun[] {
 export function createReport(from: string, to: string) {
   const seenDays = new Set<string>();
   const incompleteDays: OddityReport["incompleteDays"] = [];
-  const runs: OddityReport["runs"] = {};
-  const open = new Map<string, OddityRun & { kind: OddityKind; lastMs: number; regionSet: Set<string> }>();
+  const events = createEventTracker();
   const links = new Map<string, { first: string; last: string; intervals: number }>();
-
-  const close = (key: string) => {
-    const { kind, first, last, intervals, regionSet, regime } = open.get(key)!;
-    const run: OddityRun = { first, last, intervals };
-    if (regionSet.size > 0) run.regions = [...regionSet].sort();
-    if (regime) run.regime = regime;
-    (runs[kind] ??= []).push(run);
-    open.delete(key);
-  };
 
   return {
     add(day: DayFile) {
@@ -91,23 +56,7 @@ export function createReport(from: string, to: string) {
       }
 
       for (const interval of day.intervals) {
-        const ms = Date.parse(interval.t);
-        const active = activeKinds(interval);
-        for (const key of [...open.keys()]) {
-          if (!active.has(key) || open.get(key)!.lastMs + INTERVAL_MS !== ms) close(key);
-        }
-        for (const [key, { kind, regime, regions }] of active) {
-          const run = open.get(key);
-          if (run) {
-            run.last = interval.t;
-            run.lastMs = ms;
-            run.intervals++;
-            regions.forEach((r) => run.regionSet.add(r));
-          } else {
-            const start = { first: interval.t, last: interval.t, intervals: 1, lastMs: ms, regionSet: new Set(regions) };
-            open.set(key, { kind, ...start, ...(regime && { regime }) });
-          }
-        }
+        events.add(interval);
 
         for (const id of Object.keys(interval.interconnectors)) {
           const link = links.get(id);
@@ -122,7 +71,8 @@ export function createReport(from: string, to: string) {
     },
 
     finish(): OddityReport {
-      for (const key of [...open.keys()]) close(key);
+      const runs: OddityReport["runs"] = {};
+      for (const { kind, ...run } of events.finish()) (runs[kind] ??= []).push(run);
       const days: string[] = [];
       for (let ms = Date.parse(`${from}T00:00:00Z`); ms <= Date.parse(`${to}T00:00:00Z`); ms += 86_400_000) {
         days.push(new Date(ms).toISOString().slice(0, 10));
