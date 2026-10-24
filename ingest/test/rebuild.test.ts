@@ -20,7 +20,7 @@ const day = (date: string): DayFile => ({
   })),
 });
 
-test("rebuilds 8 plot files through yesterday in market time, logging missing days", async () => {
+test("rebuilds the plot and extremes files through yesterday in market time, logging missing days", async () => {
   const store = new FsStore(root);
   for (const date of ["2026-10-20", "2026-10-21", "2026-10-23", "2026-10-24"]) await store.putJson(dayKey(date), day(date));
   const logs: [string, Record<string, unknown> | undefined][] = [];
@@ -38,13 +38,13 @@ test("rebuilds 8 plot files through yesterday in market time, logging missing da
   expect(logs[0]).toEqual(["missing day files", { missingDays: ["2026-10-22"] }]);
   expect(readdirSync(join(root, "data/plots")).sort()).toEqual([
     "demand-daily.json",
-    "demand-hourly.json",
+    "demand-extremes.json",
     "interconnectorFlow-daily.json",
-    "interconnectorFlow-hourly.json",
+    "interconnectorFlow-extremes.json",
     "netInterchange-daily.json",
-    "netInterchange-hourly.json",
+    "netInterchange-extremes.json",
     "price-daily.json",
-    "price-hourly.json",
+    "price-extremes.json",
   ]);
 
   const daily = (await store.getJson<PlotFile>("data/plots/price-daily.json"))!;

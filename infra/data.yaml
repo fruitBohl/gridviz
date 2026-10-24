@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: gridviz NEM data (S3 data bucket + scheduled NEMWeb ingest Lambda)
+Description: gridviz NEM data (S3 data bucket, scheduled NEMWeb ingest Lambda and nightly plot rebuild Lambda)
 
 Parameters:
   DistributionId:
@@ -61,7 +61,7 @@ Resources:
     Properties:
       FunctionName: gridviz-ingest
       CodeUri: ../ingest/dist
-      Handler: index.handler
+      Handler: handler.handler
       Runtime: nodejs24.x
       Architectures: [arm64]
       MemorySize: 256
@@ -117,6 +117,73 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
 
+  RebuildLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/gridviz-rebuild
+      RetentionInDays: 14
+
+  RebuildFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: gridviz-rebuild
+      CodeUri: ../ingest/dist
+      Handler: rebuild-handler.handler
+      Runtime: nodejs24.x
+      Architectures: [arm64]
+      MemorySize: 512
+      Timeout: 300
+      ReservedConcurrentExecutions: 1
+      LoggingConfig:
+        LogGroup: !Ref RebuildLogGroup
+      Environment:
+        Variables:
+          DATA_BUCKET: !Ref DataBucket
+          NODE_OPTIONS: --enable-source-maps
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+              Resource: !Sub '${DataBucket.Arn}/*'
+            - Effect: Allow
+              Action: s3:ListBucket
+              Resource: !GetAtt DataBucket.Arn
+      EventInvokeConfig:
+        MaximumRetryAttempts: 0
+        MaximumEventAgeInSeconds: 3600
+      Events:
+        Nightly:
+          Type: ScheduleV2
+          Properties:
+            Name: gridviz-rebuild
+            # 00:30 market time: after ingest has written the interval ending 00:00, the last of yesterday
+            ScheduleExpression: cron(30 0 * * ? *)
+            ScheduleExpressionTimezone: Australia/Brisbane
+            State: !Ref ScheduleState
+            RetryPolicy:
+              MaximumRetryAttempts: 0
+
+  RebuildErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: gridviz-rebuild-errors
+      AlarmDescription: >-
+        gridviz-rebuild failed in the last day, so data/plots/ wasn't updated. See /aws/lambda/gridviz-rebuild.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref RebuildFunction
+      Statistic: Sum
+      Period: 86400
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
 Outputs:
   DataBucketName:
     Value: !Ref DataBucket
@@ -128,3 +195,5 @@ Outputs:
       Name: gridviz-data-bucket-domain
   IngestFunctionName:
     Value: !Ref IngestFunction
+  RebuildFunctionName:
+    Value: !Ref RebuildFunction

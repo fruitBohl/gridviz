@@ -1,4 +1,5 @@
 import { createAggregator, plotKey } from "./aggregate";
+import { createExtremes, extremesKey } from "./extremes";
 import { dayKey, tradingDate, type DayFile } from "./output";
 import type { Store } from "./store";
 import { addDays } from "./time";
@@ -16,7 +17,7 @@ export type RebuildOptions = {
 
 export type RebuildResult = { throughDate: string; days: number; missingDays: string[]; written: string[] };
 
-/** Rebuilds every plot file from the day files, from `from` to yesterday in market time. */
+/** Rebuilds every plot and extremes file from the day files, from `from` to yesterday in market time. */
 export async function rebuild({
   store,
   from = HISTORY_START,
@@ -29,7 +30,8 @@ export async function rebuild({
   const dates: string[] = [];
   for (let d = from; d <= throughDate; d = addDays(d, 1)) dates.push(d);
 
-  const aggregators = [createAggregator("hourly", { from }), createAggregator("daily", { from })];
+  const aggregator = createAggregator({ from });
+  const extremes = createExtremes();
   const pending: Promise<DayFile | undefined>[] = [];
   const missingDays: string[] = [];
   for (let i = 0; i < dates.length; i++) {
@@ -42,17 +44,19 @@ export async function rebuild({
       missingDays.push(dates[i]);
       continue;
     }
-    aggregators.forEach((agg) => agg.add(day));
+    aggregator.add(day);
+    extremes.add(day);
   }
   if (missingDays.length > 0) log("missing day files", { missingDays });
 
+  const files = [
+    ...aggregator.finish(throughDate, { generatedAt }).map((file) => [plotKey(file.metric), file] as const),
+    ...extremes.finish(throughDate, { generatedAt }).map((file) => [extremesKey(file.metric), file] as const),
+  ];
   const written: string[] = [];
-  for (const agg of aggregators) {
-    for (const file of agg.finish(throughDate, { generatedAt })) {
-      const key = plotKey(file.metric, file.resolution);
-      await store.putJson(key, file, { cacheControl: PLOT_CACHE_CONTROL });
-      written.push(key);
-    }
+  for (const [key, file] of files) {
+    await store.putJson(key, file, { cacheControl: PLOT_CACHE_CONTROL });
+    written.push(key);
   }
 
   const result = { throughDate, days: dates.length - missingDays.length, missingDays, written };

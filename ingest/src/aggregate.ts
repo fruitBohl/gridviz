@@ -6,8 +6,6 @@ import { addDays, INTERVAL_MS, startOfDayMs, toMarketLabel } from "./time";
 
 export const METRICS = ["price", "demand", "netInterchange", "interconnectorFlow"] as const;
 export type Metric = (typeof METRICS)[number];
-export const RESOLUTIONS = ["hourly", "daily"] as const;
-export type Resolution = (typeof RESOLUTIONS)[number];
 
 export type PlotEventKind = Exclude<EventKind, "vollOverride"> | "missingData";
 
@@ -22,25 +20,24 @@ export type PlotEvent = {
 
 export type PlotFile = {
   metric: Metric;
-  resolution: Resolution;
   unit: "$/MWh" | "MW";
   generatedAt: string;
   /** Last complete day included; the page adds days after this one. */
   throughDate: string;
-  /** Bucket starts in market time with no offset: "2025-01-31 14:00" or "2025-01-31". */
+  /** Trading days in market time: "2025-01-31". */
   t: string[];
-  /** Mean per bucket; null where the series has no data. Every array has the length of `t`. */
+  /** Daily mean; null where the series has no data. Every array has the length of `t`. */
   series: Record<string, (number | null)[]>;
   events: PlotEvent[];
   firstSeen: Record<string, string>;
   lastSeen: Record<string, string>;
-  /** The last bucket is still filling up (today, or the current hour). */
+  /** The last day is today, still filling up. */
   partialLast?: true;
 };
 
-export const plotKey = (metric: Metric, resolution: Resolution) => `data/plots/${metric}-${resolution}.json`;
+export const plotKey = (metric: Metric) => `data/plots/${metric}-daily.json`;
 
-const UNITS: Record<Metric, PlotFile["unit"]> = {
+export const UNITS: Record<Metric, PlotFile["unit"]> = {
   price: "$/MWh",
   demand: "MW",
   netInterchange: "MW",
@@ -50,25 +47,16 @@ const UNITS: Record<Metric, PlotFile["unit"]> = {
 /** Interventions and missing data affect every chart; the rest only change how prices were set. */
 const PRICE_ONLY: PlotEventKind[] = ["administeredPrice", "priceLimit", "manualPrice", "lossFactorScaling", "suspended"];
 
-function values(interval: DispatchInterval, metric: Metric): [string, number][] {
+export function metricValues(interval: DispatchInterval, metric: Metric): [string, number][] {
   if (metric === "interconnectorFlow") {
     return Object.entries(interval.interconnectors).map(([id, ic]) => [id, ic.mwFlow]);
   }
   return Object.entries(interval.regions).map(([id, r]) => [id, r[metric]]);
 }
 
-const bucketKey = (resolution: Resolution, startMs: number) => {
-  const label = toMarketLabel(startMs);
-  return resolution === "daily" ? label.slice(0, 10) : `${label.slice(0, 13)}:00`;
-};
+const bucketKey = (startMs: number) => toMarketLabel(startMs).slice(0, 10);
 
-const bucketMs = (key: string) => Date.parse(`${key.length === 10 ? `${key}T00:00` : key.replace(" ", "T")}:00+10:00`);
-
-export function nextBucket(resolution: Resolution, key: string): string {
-  return bucketKey(resolution, bucketMs(key) + (resolution === "daily" ? 24 : 1) * 60 * 60 * 1000);
-}
-
-const round2 = (v: number) => Math.round(v * 100) / 100;
+export const round2 = (v: number) => Math.round(v * 100) / 100;
 
 type Totals = { sum: number[]; count: number[] };
 
@@ -84,11 +72,11 @@ export type FinishOptions = {
 };
 
 /**
- * Turns day files into mean values per bucket. Feed days in date order, one at a time, so two
- * years never have to sit in memory at once. Buckets go by interval start (t - 5 min), so the
- * interval ending 01:00 is in the 00:00 hour and the one ending 00:00 is in the previous day.
+ * Turns day files into daily means. Feed days in date order, one at a time, so two years never
+ * have to sit in memory at once. Days go by interval start (t - 5 min), so the interval ending
+ * 00:00 belongs to the previous day, as it does in AEMO's trading day.
  */
-export function createAggregator(resolution: Resolution, options: AggregatorOptions = {}) {
+export function createAggregator(options: AggregatorOptions = {}) {
   const t: string[] = [];
   const totals = new Map<Metric, Map<string, Totals>>(METRICS.map((m) => [m, new Map()]));
   const seen = new Map<Metric, Map<string, { first: string; last: string }>>(METRICS.map((m) => [m, new Map()]));
@@ -98,8 +86,8 @@ export function createAggregator(resolution: Resolution, options: AggregatorOpti
   let lastMs = fromMs;
 
   const ensureBucket = (key: string) => {
-    if (t.length === 0) t.push(fromMs === undefined ? key : bucketKey(resolution, fromMs));
-    while (t[t.length - 1] < key) t.push(nextBucket(resolution, t[t.length - 1]));
+    if (t.length === 0) t.push(fromMs === undefined ? key : bucketKey(fromMs));
+    while (t[t.length - 1] < key) t.push(addDays(t[t.length - 1], 1));
     return t.length - 1;
   };
 
@@ -117,12 +105,12 @@ export function createAggregator(resolution: Resolution, options: AggregatorOpti
         if (lastMs !== undefined && ms - lastMs > INTERVAL_MS) gap(lastMs, ms - INTERVAL_MS);
         lastMs = ms;
 
-        const i = ensureBucket(bucketKey(resolution, ms - INTERVAL_MS));
+        const i = ensureBucket(bucketKey(ms - INTERVAL_MS));
         tracker.add(interval);
         for (const metric of METRICS) {
           const byId = totals.get(metric)!;
           const seenById = seen.get(metric)!;
-          for (const [id, value] of values(interval, metric)) {
+          for (const [id, value] of metricValues(interval, metric)) {
             let total = byId.get(id);
             if (!total) byId.set(id, (total = { sum: [], count: [] }));
             total.sum[i] = (total.sum[i] ?? 0) + value;
@@ -139,7 +127,7 @@ export function createAggregator(resolution: Resolution, options: AggregatorOpti
       const endMs = startOfDayMs(addDays(throughDate, 1));
       if (!open && lastMs !== undefined && lastMs < endMs) {
         gap(lastMs, endMs);
-        ensureBucket(bucketKey(resolution, endMs - INTERVAL_MS));
+        ensureBucket(bucketKey(endMs - INTERVAL_MS));
       }
 
       const events: PlotEvent[] = [
@@ -166,7 +154,6 @@ export function createAggregator(resolution: Resolution, options: AggregatorOpti
         const seenById = seen.get(metric)!;
         return {
           metric,
-          resolution,
           unit: UNITS[metric],
           generatedAt: generatedAt.toISOString(),
           throughDate,
@@ -190,17 +177,15 @@ const sameEvent = (a: PlotEvent, b: PlotEvent) =>
  * after the tail's first bucket are dropped, and events that meet at the join become one.
  */
 export function appendTail(history: PlotFile, tail: PlotFile): PlotFile {
-  if (history.metric !== tail.metric || history.resolution !== tail.resolution) {
-    throw new Error(`can't append ${tail.metric}-${tail.resolution} to ${history.metric}-${history.resolution}`);
-  }
+  if (history.metric !== tail.metric) throw new Error(`can't append ${tail.metric} to ${history.metric}`);
   if (tail.t.length === 0) return history;
 
   let keep = history.t.findIndex((key) => key >= tail.t[0]);
   if (keep === -1) keep = history.t.length;
   const filler: string[] = [];
   let last = history.t[keep - 1];
-  while (last !== undefined && nextBucket(history.resolution, last) < tail.t[0]) {
-    last = nextBucket(history.resolution, last);
+  while (last !== undefined && addDays(last, 1) < tail.t[0]) {
+    last = addDays(last, 1);
     filler.push(last);
   }
 
