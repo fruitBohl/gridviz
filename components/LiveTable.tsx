@@ -14,7 +14,7 @@ const REGION_NAMES: Record<string, string> = {
   VIC1: "Victoria",
 };
 
-// Positive flow runs from the first region to the second
+/** Positive flow runs from the first region to the second. */
 const INTERCONNECTORS: Record<string, { name: string; from: string; to: string }> = {
   "N-Q-MNSP1": { name: "Terranora", from: "NSW", to: "QLD" },
   "NSW1-QLD1": { name: "QNI", from: "NSW", to: "QLD" },
@@ -27,7 +27,7 @@ const INTERCONNECTORS: Record<string, { name: string; from: string; to: string }
 
 const price = new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" });
 const mw = new Intl.NumberFormat("en-AU", { maximumFractionDigits: 0 });
-// NEM market time is AEST all year; Brisbane has no daylight saving
+/** NEM market time is AEST all year; Brisbane has no daylight saving. */
 const aest = new Intl.DateTimeFormat("en-AU", {
   timeZone: "Australia/Brisbane",
   dateStyle: "medium",

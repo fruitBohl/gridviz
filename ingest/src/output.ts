@@ -16,7 +16,7 @@ export const dayKey = (tradingDate: string) => `data/days/${tradingDate}.json`;
 const AEST_MS = 10 * 60 * 60 * 1000;
 const INTERVAL_MS = 5 * 60 * 1000;
 
-// Intervals are labelled by their end time, so the one ending 00:00 belongs to the previous trading day
+/** Intervals are labelled by their end time, so the one ending 00:00 belongs to the previous trading day. */
 export function tradingDate(t: string): string {
   return new Date(Date.parse(t) - INTERVAL_MS + AEST_MS).toISOString().slice(0, 10);
 }

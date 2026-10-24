@@ -7,7 +7,7 @@ export class AemoFormatError extends Error {
 
 export const NEM_REGIONS = ["NSW1", "QLD1", "SA1", "TAS1", "VIC1"] as const;
 
-// AEMO timestamps are market time: AEST all year, no daylight saving
+/** AEMO timestamps are market time: AEST all year, no daylight saving. */
 export function aemoTimeToIso(value: string): string {
   const m = /^(\d{4})\/(\d{2})\/(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(value);
   if (!m) throw new AemoFormatError(`Unexpected AEMO timestamp: ${value}`);
@@ -30,7 +30,6 @@ const aemoNumber = (check = z.number()) =>
 
 const intervention = z.enum(["0", "1"]);
 
-// AEMO adds columns in data model releases, so unknown columns are allowed (Zod drops them)
 const priceRow = z.object({
   SETTLEMENTDATE: aemoTime,
   REGIONID: z.enum(NEM_REGIONS),
@@ -47,9 +46,9 @@ const regionSumRow = z.object({
   NETINTERCHANGE: aemoNumber(),
 });
 
-// Interconnector IDs aren't fixed: new links (like NSW1-SA1) get added over time
 const interconnectorRow = z.object({
   SETTLEMENTDATE: aemoTime,
+  // Not an enum: new links (like NSW1-SA1) get added over time
   INTERCONNECTORID: z.string().regex(/^[A-Z0-9-]+$/, "unexpected interconnector ID"),
   INTERVENTION: intervention,
   MWFLOW: aemoNumber(),
@@ -59,13 +58,14 @@ const interconnectorRow = z.object({
 
 type TableSpec<S extends z.ZodType> = { key: string; version: number; row: S };
 
-// EMMS data model table versions, checked 2026-10-24. A new version can rename or drop columns.
+/** EMMS data model table versions, checked 2026-10-24. A new version can rename or drop columns. */
 export const DISPATCHIS_TABLES = {
   price: { key: "DISPATCH.PRICE", version: 5, row: priceRow },
   regionSum: { key: "DISPATCH.REGIONSUM", version: 9, row: regionSumRow },
   interconnector: { key: "DISPATCH.INTERCONNECTORRES", version: 3, row: interconnectorRow },
 } satisfies Record<string, TableSpec<z.ZodType>>;
 
+/** AEMO adds columns in data model releases, so unknown columns are allowed (Zod drops them). */
 export function readTable<S extends z.ZodType>(
   tables: Map<string, Table>,
   spec: TableSpec<S>,

@@ -16,7 +16,7 @@ export function settlementFromName(name: string): string {
   return `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:00+10:00`;
 }
 
-// The last part of a file name is AEMO's sequence number; a republished interval gets a higher one
+/** The last part of a file name is AEMO's sequence number; a republished interval gets a higher one. */
 export function parseListing(html: string, baseUrl = DISPATCHIS_URL): ReportFile[] {
   const bySettlement = new Map<string, { file: ReportFile; seq: bigint }>();
   for (const [, href] of html.matchAll(/href="([^"]+)"/gi)) {

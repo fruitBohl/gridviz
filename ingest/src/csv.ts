@@ -1,8 +1,3 @@
-// AEMO's report CSVs hold several tables in one file. Each row starts with a record type:
-//   C,...                                  comment (file header and footer)
-//   I,<report>,<table>,<version>,<cols...> column names for the D rows that follow
-//   D,<report>,<table>,<version>,<vals...> one data row
-
 export type Row = Record<string, string>;
 
 export type Table = {
@@ -38,6 +33,13 @@ export function splitCsvLine(line: string): string[] {
   return fields;
 }
 
+/**
+ * AEMO's report CSVs hold several tables in one file. Each row starts with a record type:
+ *
+ * - `C,...` comment (file header and footer)
+ * - `I,<report>,<table>,<version>,<cols...>` column names for the D rows that follow
+ * - `D,<report>,<table>,<version>,<vals...>` one data row
+ */
 export function parseAemoCsv(text: string): Map<string, Table> {
   const tables = new Map<string, Table>();
   const headers = new Map<string, string[]>();

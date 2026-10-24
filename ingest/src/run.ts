@@ -46,7 +46,7 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   return results;
 }
 
-// Each DispatchIS file holds exactly one interval, the one its name says
+/** Each DispatchIS file holds exactly one interval, the one its name says. */
 function parseFile(file: ReportFile, zip: Uint8Array): DispatchInterval[] {
   try {
     const intervals = parseDispatchIsZip(zip);

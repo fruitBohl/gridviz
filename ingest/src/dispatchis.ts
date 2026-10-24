@@ -2,7 +2,6 @@ import { strFromU8, unzipSync } from "fflate";
 import { parseAemoCsv } from "./csv";
 import { AemoFormatError, DISPATCHIS_TABLES, NEM_REGIONS, readTable } from "./schema";
 
-// One 5-minute dispatch interval. `t` is the interval end in market time (AEST, UTC+10).
 export type RegionInterval = {
   price: number; // RRP, $/MWh
   demand: number; // TOTALDEMAND, MW
@@ -16,17 +15,20 @@ export type InterconnectorInterval = {
   importLimit: number;
 };
 
+/** One 5-minute dispatch interval. */
 export type DispatchInterval = {
-  t: string;
+  t: string; // interval end, market time (AEST, UTC+10)
   regions: Record<string, RegionInterval>;
   interconnectors: Record<string, InterconnectorInterval>;
 };
 
 type Run = { SETTLEMENTDATE: string; INTERVENTION: "0" | "1" };
 
-// During an intervention AEMO publishes two runs. INTERVENTION=0 is the pricing run, so
-// prices come from it. INTERVENTION=1 is what was physically dispatched, so quantities
-// use it when present.
+/**
+ * During an intervention AEMO publishes two runs. INTERVENTION=0 is the pricing run, so
+ * prices come from it. INTERVENTION=1 is what was physically dispatched, so quantities
+ * use it when present.
+ */
 function pick<R extends Run>(rows: R[], id: (row: R) => string, prefer: "0" | "1"): Map<string, R> {
   const chosen = new Map<string, R>();
   for (const row of rows) {
