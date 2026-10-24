@@ -70,6 +70,10 @@ export const DISPATCHIS_TABLES = {
   interconnector: { key: "DISPATCH.INTERCONNECTORRES", versions: [3], row: interconnectorRow },
 } satisfies Record<string, TableSpec<z.ZodType>>;
 
+export const DISPATCHIS_COLUMNS = new Map(
+  Object.values(DISPATCHIS_TABLES).map((spec) => [spec.key, Object.keys(spec.row.shape)] as const),
+);
+
 /** AEMO adds columns in data model releases, so unknown columns are allowed (Zod drops them). */
 export function readTable<S extends z.ZodType>(
   tables: Map<string, Table>,

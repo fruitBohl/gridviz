@@ -8,6 +8,7 @@ import { fetchListing, settlementFromName, USER_AGENT, type ReportFile } from ".
 import { createReport, type OddityReport } from "./oddities";
 import { dayKey, mergeIntervals, tradingDate } from "./output";
 import { parseFile } from "./run";
+import { DISPATCHIS_COLUMNS } from "./schema";
 import { FsStore } from "./store";
 
 const MMSDM_URL = "https://nemweb.com.au/Data_Archive/Wholesale_Electricity/MMSDM";
@@ -53,7 +54,7 @@ export function readMmsdmMonth(zips: Uint8Array[]): DispatchInterval[] {
   const tables = zips.map((zip) => {
     const csv = Object.entries(unzipSync(zip)).find(([name]) => /\.csv$/i.test(name));
     if (!csv) throw new Error("No CSV in MMSDM zip");
-    return parseAemoCsv(strFromU8(csv[1]));
+    return parseAemoCsv(strFromU8(csv[1]), DISPATCHIS_COLUMNS);
   });
   return buildIntervals(mergeTables(tables));
 }
@@ -170,46 +171,52 @@ export async function backfill(o: BackfillOptions): Promise<OddityReport | undef
   if (o.planOnly) return undefined;
 
   let listing: Promise<ReportFile[]> | undefined;
-  const load = async (source: Source): Promise<DispatchInterval[]> => {
+  const download = async (source: Source): Promise<() => DispatchInterval[]> => {
     if (source.kind === "mmsdm") {
       const folder = mmsdmFolder(source.month);
       const zips = await Promise.all(
         source.files.map((name) => fetcher.bytes(folder + name.replaceAll("#", "%23"), name)),
       );
-      return readMmsdmMonth(zips);
+      return () => readMmsdmMonth(zips);
     }
     if (source.kind === "daily") {
       const name = `PUBLIC_DISPATCHIS_${source.date.replaceAll("-", "")}.zip`;
-      return readDailyArchive(await fetcher.bytes(DAILY_URL + name, name));
+      const zip = await fetcher.bytes(DAILY_URL + name, name);
+      return () => readDailyArchive(zip);
     }
     listing ??= fetchListing();
     const files = (await listing).filter((f) => tradingDate(f.settlementDate) === source.date);
-    const parsed = await Promise.all(files.map(async (f) => parseFile(f, await fetcher.bytes(f.url, f.name))));
-    return parsed.flat();
+    const zips = await Promise.all(files.map((f) => fetcher.bytes(f.url, f.name)));
+    return () => files.flatMap((f, i) => parseFile(f, zips[i]));
   };
 
   const store = new FsStore(o.outDir);
   const report = createReport(o.from, o.to);
   const inRange = new Set(dates);
   const written = new Set<string>();
-  const chunkSize = 4;
-  for (let i = 0; i < sources.length; i += chunkSize) {
-    const chunk = sources.slice(i, i + chunkSize);
-    const loaded = await Promise.all(chunk.map(load));
+  const downloads = sources.map(() => undefined as Promise<() => DispatchInterval[]> | undefined);
+  const prefetch = 3;
+  for (let i = 0; i < sources.length; i++) {
+    for (let j = i; j <= Math.min(i + prefetch, sources.length - 1); j++) downloads[j] ??= download(sources[j]);
+    const intervals = (await downloads[i]!)();
+    downloads[i] = undefined;
 
     const byDay = new Map<string, DispatchInterval[]>();
-    for (const interval of loaded.flat()) {
+    for (const interval of intervals) {
       const date = tradingDate(interval.t);
-      if (inRange.has(date)) byDay.set(date, [...(byDay.get(date) ?? []), interval]);
+      if (!inRange.has(date)) continue;
+      if (!byDay.has(date)) byDay.set(date, []);
+      byDay.get(date)!.push(interval);
     }
     for (const date of [...byDay.keys()].sort()) {
-      if (written.has(date)) throw new Error(`${date} came from two batches of sources; the plan's day boundaries are wrong`);
+      if (written.has(date)) throw new Error(`${date} came from two sources; the plan's day boundaries are wrong`);
       written.add(date);
       const day = mergeIntervals(undefined, date, byDay.get(date)!);
       await store.putJson(dayKey(date), day);
       report.add(day);
     }
-    o.log(`wrote ${byDay.size} day(s) from ${chunk.map((s) => (s.kind === "mmsdm" ? s.month : s.date)).join(", ")}`);
+    const source = sources[i];
+    o.log(`wrote ${byDay.size} day(s) from ${source.kind} ${source.kind === "mmsdm" ? source.month : source.date}`);
   }
 
   const result = report.finish();

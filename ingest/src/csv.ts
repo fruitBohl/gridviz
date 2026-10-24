@@ -58,9 +58,13 @@ export function mergeTables(parts: Map<string, Table>[]): Map<string, Table> {
   return merged;
 }
 
-export function parseAemoCsv(text: string): Map<string, Table> {
+/**
+ * `keep` limits parsing to some tables and columns, for files much bigger than one DispatchIS
+ * report. A listed column missing from the file is left out of the rows, so schemas still catch it.
+ */
+export function parseAemoCsv(text: string, keep?: Map<string, readonly string[]>): Map<string, Table> {
   const tables = new Map<string, Table>();
-  const headers = new Map<string, string[]>();
+  const headers = new Map<string, [name: string, index: number][]>();
 
   for (const line of text.split(/\r?\n/)) {
     if (line.length === 0) continue;
@@ -69,8 +73,11 @@ export function parseAemoCsv(text: string): Map<string, Table> {
     if (type !== "I" && type !== "D") continue;
 
     const key = `${report}.${table}`;
+    const wanted = keep?.get(key);
+    if (keep && !wanted) continue;
     if (type === "I") {
-      headers.set(key, fields.slice(4));
+      const columns = fields.slice(4).map((name, i): [string, number] => [name, 4 + i]);
+      headers.set(key, wanted ? columns.filter(([name]) => wanted.includes(name)) : columns);
       tables.set(key, { version: Number(version), rows: tables.get(key)?.rows ?? [] });
       continue;
     }
@@ -78,9 +85,7 @@ export function parseAemoCsv(text: string): Map<string, Table> {
     const columns = headers.get(key);
     if (!columns) throw new Error(`D row for ${key} before its I row`);
     const row: Row = {};
-    columns.forEach((name, i) => {
-      row[name] = fields[4 + i] ?? "";
-    });
+    for (const [name, index] of columns) row[name] = fields[index] ?? "";
     tables.get(key)!.rows.push(row);
   }
 
