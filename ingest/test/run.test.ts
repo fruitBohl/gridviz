@@ -27,7 +27,6 @@ const file = (date: string, hhmm: string): ReportFile => ({
   settlementDate: `${date}T${hhmm.slice(0, 2)}:${hhmm.slice(2)}:00+10:00`,
 });
 
-// "2026-10-24T00:10:00+10:00" -> "2026/10/24 00:10:00"
 const aemoTime = (iso: string) => `${iso.slice(0, 10).replaceAll("-", "/")} ${iso.slice(11, 19)}`;
 
 let store: MemoryStore;
@@ -47,7 +46,6 @@ const options = () => ({
 beforeEach(() => {
   store = new MemoryStore();
   fetched = [];
-  // The previous trading day's last two intervals, then the first two of 2026-10-24
   listing = [file("2026-10-23", "2355"), file("2026-10-24", "0000"), file("2026-10-24", "0005"), file("2026-10-24", "0010")];
 });
 

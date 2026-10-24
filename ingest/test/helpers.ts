@@ -12,14 +12,12 @@ export type CsvParts = {
 
 const REGIONS = ["NSW1", "QLD1", "SA1", "TAS1", "VIC1"];
 
-// The column subset the parser reads, in AEMO's order
 export const COLUMNS = {
   PRICE: ["SETTLEMENTDATE", "REGIONID", "INTERVENTION", "RRP"],
   REGIONSUM: ["SETTLEMENTDATE", "REGIONID", "INTERVENTION", "TOTALDEMAND", "AVAILABLEGENERATION", "NETINTERCHANGE"],
   INTERCONNECTORRES: ["SETTLEMENTDATE", "INTERCONNECTORID", "INTERVENTION", "MWFLOW", "EXPORTLIMIT", "IMPORTLIMIT"],
 };
 
-// Complete, valid rows for one interval ending at `aemoTime` ("2026/10/24 15:05:00")
 export function validRows(aemoTime: string, price = "50"): Required<Omit<CsvParts, "versions" | "columns">> {
   return {
     price: REGIONS.map((REGIONID) => ({ SETTLEMENTDATE: aemoTime, REGIONID, INTERVENTION: "0", RRP: price })),

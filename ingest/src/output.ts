@@ -1,13 +1,12 @@
 import type { DispatchInterval } from "./dispatchis";
 
-// Shapes of the public JSON files under data/ (read by the /live page)
 export type Latest = Omit<DispatchInterval, "t"> & {
   settlementDate: string;
   generatedAt: string;
 };
 
 export type DayFile = {
-  tradingDate: string; // YYYY-MM-DD
+  tradingDate: string;
   intervals: DispatchInterval[];
 };
 
@@ -17,13 +16,11 @@ export const dayKey = (tradingDate: string) => `data/days/${tradingDate}.json`;
 const AEST_MS = 10 * 60 * 60 * 1000;
 const INTERVAL_MS = 5 * 60 * 1000;
 
-// Intervals are labelled by their end time, so the one ending 00:00 belongs to the previous
-// trading day (AEMO's convention): shift back 5 minutes, then take the AEST calendar date.
+// Intervals are labelled by their end time, so the one ending 00:00 belongs to the previous trading day
 export function tradingDate(t: string): string {
   return new Date(Date.parse(t) - INTERVAL_MS + AEST_MS).toISOString().slice(0, 10);
 }
 
-// End of the first interval (00:05 AEST) of the trading day that `t` belongs to
 export function startOfTradingDay(t: string): string {
   return `${tradingDate(t)}T00:05:00+10:00`;
 }

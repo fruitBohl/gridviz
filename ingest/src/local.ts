@@ -1,6 +1,3 @@
-// bun run ingest:local
-// Runs the ingest against live NEMWeb and writes the JSON into public/data/, so `bun dev`
-// serves the same /data/* files CloudFront does in production. Raw zips aren't kept.
 import { fetchFile, fetchListing } from "./nemweb";
 import { run } from "./run";
 import { FsStore } from "./store";

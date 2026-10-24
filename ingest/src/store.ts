@@ -2,14 +2,12 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { GetObjectCommand, PutObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 
-// Where run() reads and writes its files: S3 in Lambda, the filesystem for local runs
 export interface Store {
   getJson<T>(key: string): Promise<T | undefined>;
   putJson(key: string, value: unknown): Promise<void>;
   putBytes(key: string, body: Uint8Array, contentType: string): Promise<void>;
 }
 
-// CloudFront's /data/* cache policy honours this, so viewers see new data within a minute
 const DATA_CACHE_CONTROL = "public, max-age=60";
 
 export class S3Store implements Store {

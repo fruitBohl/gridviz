@@ -2,7 +2,6 @@
 //   C,...                                  comment (file header and footer)
 //   I,<report>,<table>,<version>,<cols...> column names for the D rows that follow
 //   D,<report>,<table>,<version>,<vals...> one data row
-// Columns are always looked up by name: data model releases add columns between versions.
 
 export type Row = Record<string, string>;
 
@@ -11,7 +10,6 @@ export type Table = {
   rows: Row[];
 };
 
-// Split one CSV line, honouring double quotes ("" is an escaped quote inside a quoted field)
 export function splitCsvLine(line: string): string[] {
   const fields: string[] = [];
   let field = "";
@@ -40,7 +38,6 @@ export function splitCsvLine(line: string): string[] {
   return fields;
 }
 
-// Tables keyed by "<REPORT>.<TABLE>", e.g. "DISPATCH.PRICE"
 export function parseAemoCsv(text: string): Map<string, Table> {
   const tables = new Map<string, Table>();
   const headers = new Map<string, string[]>();

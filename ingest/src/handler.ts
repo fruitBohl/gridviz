@@ -3,7 +3,6 @@ import { fetchFile, fetchListing } from "./nemweb";
 import { run } from "./run";
 import { S3Store } from "./store";
 
-// Lambda entry point, invoked by EventBridge Scheduler every 5 minutes (infra/data.yaml)
 const bucket = process.env.DATA_BUCKET;
 if (!bucket) throw new Error("DATA_BUCKET is not set");
 
@@ -14,6 +13,5 @@ export const handler = () =>
     store,
     fetchListing: () => fetchListing(),
     fetchFile,
-    // One JSON object per line, so CloudWatch Logs Insights can query the fields
     log: (message, fields) => console.log(JSON.stringify({ message, ...fields })),
   });

@@ -4,8 +4,6 @@ import { parseDispatchIsCsv, parseDispatchIsZip } from "../src/dispatchis";
 import { aemoTimeToIso, AemoFormatError } from "../src/schema";
 import { COLUMNS, dispatchCsv, validRows } from "./helpers";
 
-// Each test simulates one way AEMO could change the format, and expects an AemoFormatError
-// with a message that says what changed.
 const t = "2026/10/24 15:05:00";
 const valid = validRows(t);
 const withRow = <K extends "price" | "regionSum" | "interconnector">(key: K, overrides: Record<string, string>) => ({

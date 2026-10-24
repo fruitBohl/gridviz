@@ -17,7 +17,7 @@ export type RunOptions = {
   store: Store;
   fetchListing: () => Promise<ReportFile[]>;
   fetchFile: (file: ReportFile) => Promise<Uint8Array>;
-  archiveRaw?: boolean; // keep the original zips under raw/ (off for local runs)
+  archiveRaw?: boolean;
   maxFiles?: number;
   concurrency?: number;
   now?: () => Date;
@@ -30,7 +30,6 @@ export type RunResult = {
   daysWritten: string[];
 };
 
-// raw/dispatchis/2026/10/24/PUBLIC_DISPATCHIS_202610241505_....zip
 const rawKey = (file: ReportFile) =>
   `raw/dispatchis/${file.settlementDate.slice(0, 10).replaceAll("-", "/")}/${file.name}`;
 
@@ -47,8 +46,7 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   return results;
 }
 
-// Each DispatchIS file holds exactly one interval, the one its name says. Format errors
-// are re-thrown with the file name so the Lambda log points at the file to inspect.
+// Each DispatchIS file holds exactly one interval, the one its name says
 function parseFile(file: ReportFile, zip: Uint8Array): DispatchInterval[] {
   try {
     const intervals = parseDispatchIsZip(zip);
@@ -65,8 +63,6 @@ function parseFile(file: ReportFile, zip: Uint8Array): DispatchInterval[] {
   }
 }
 
-// Catch up on every listed file newer than data/latest.json, then rewrite the touched day
-// files and latest.json. latest.json is written last, so a failed run is redone next time.
 export async function run({
   store,
   fetchListing,
@@ -83,7 +79,6 @@ export async function run({
     throw new AemoFormatError("NEMWeb listing has no DispatchIS files: has the page or file naming changed?");
   }
 
-  // First run (or no latest.json): seed from the start of the newest file's trading day
   const newest = listing[listing.length - 1].settlementDate;
   const pending = latest
     ? listing.filter((f) => f.settlementDate > latest.settlementDate)

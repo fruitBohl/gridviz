@@ -78,7 +78,6 @@ export function parseDispatchIsCsv(text: string): DispatchInterval[] {
     };
   }
 
-  // Every interval must be complete: all five regions and at least one interconnector
   for (const { t, regions, interconnectors } of intervals.values()) {
     const missing = NEM_REGIONS.filter((r) => !(r in regions));
     if (missing.length > 0) throw new AemoFormatError(`${t}: no data for ${missing.join(", ")}`);
@@ -88,7 +87,6 @@ export function parseDispatchIsCsv(text: string): DispatchInterval[] {
   return [...intervals.values()].sort((a, b) => a.t.localeCompare(b.t));
 }
 
-// A DispatchIS zip holds a single CSV
 export function parseDispatchIsZip(zip: Uint8Array): DispatchInterval[] {
   const entries = Object.entries(unzipSync(zip));
   const csv = entries.find(([name]) => name.toUpperCase().endsWith(".CSV"));

@@ -3,9 +3,9 @@ export const DISPATCHIS_URL = "https://nemweb.com.au/Reports/Current/DispatchIS_
 const USER_AGENT = "gridviz (+https://andyouandyou.com)";
 
 export type ReportFile = {
-  name: string; // PUBLIC_DISPATCHIS_202610241505_0000000544621747.zip
+  name: string;
   url: string;
-  settlementDate: string; // interval end, ISO in AEST: 2026-10-24T15:05:00+10:00
+  settlementDate: string; // end of the 5-minute interval, AEST
 };
 
 const FILE_NAME = /PUBLIC_DISPATCHIS_(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})_(\d+)\.zip/i;
@@ -16,8 +16,7 @@ export function settlementFromName(name: string): string {
   return `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:00+10:00`;
 }
 
-// The directory listing is plain HTML with one <A HREF="..."> per file. If AEMO ever
-// republishes an interval, the higher sequence number (last part of the name) wins.
+// The last part of a file name is AEMO's sequence number; a republished interval gets a higher one
 export function parseListing(html: string, baseUrl = DISPATCHIS_URL): ReportFile[] {
   const bySettlement = new Map<string, { file: ReportFile; seq: bigint }>();
   for (const [, href] of html.matchAll(/href="([^"]+)"/gi)) {
