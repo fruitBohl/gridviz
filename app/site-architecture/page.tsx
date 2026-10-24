@@ -72,14 +72,15 @@ const components: Component[] = [
                 the exported .html file.
             </>,
             "S3's 403 for a missing file becomes a proper 404 page.",
+            "A second origin serves /data/* from the data bucket with its own cache policy: 60 seconds by default, never more than 5 minutes, so new prices appear within a minute without cache invalidations.",
         ],
     },
     {
         service: "Amazon S3",
         url: "https://aws.amazon.com/s3/",
-        role: "Static hosting",
+        role: "Static hosting and data",
         details: [
-            "A private bucket with all public access blocked.",
+            "Two private buckets with all public access blocked: one for the site, one for NEM data.",
             <>
                 Only this CloudFront distribution can read from it, through{" "}
                 <Ext href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-s3.html">
@@ -88,6 +89,49 @@ const components: Component[] = [
                 (SigV4) and a bucket policy scoped to the distribution&apos;s
                 ARN.
             </>,
+            "The data bucket only exposes data/*. The raw AEMO zips under raw/ stay private and expire after 90 days.",
+            "Keeping data in its own bucket means a release's s3 sync --delete can never wipe it, and the deploy user can't touch it.",
+        ],
+    },
+    {
+        service: "Amazon EventBridge Scheduler",
+        url: "https://aws.amazon.com/eventbridge/scheduler/",
+        role: "Ingest trigger",
+        details: [
+            "Invokes the ingest Lambda at 1, 6, 11 … 56 minutes past every hour, just after AEMO publishes each 5-minute dispatch file.",
+        ],
+    },
+    {
+        service: "AWS Lambda",
+        url: "https://aws.amazon.com/lambda/",
+        role: "NEM data ingest",
+        details: [
+            <>
+                A TypeScript function (Node.js 24, arm64) downloads new
+                DispatchIS files from{" "}
+                <Ext href="https://nemweb.com.au/Reports/Current/DispatchIS_Reports/">
+                    AEMO NEMWeb
+                </Ext>
+                , archives the raw zip and writes data/latest.json plus one
+                JSON file per trading day.
+            </>,
+            <>
+                Every row is validated with{" "}
+                <Ext href="https://zod.dev/">Zod</Ext>. If AEMO changes its
+                format, the run fails before writing anything, so the site
+                keeps showing the last good data.
+            </>,
+            "Each run catches up on every file it missed, so no retries are needed. Reserved concurrency of 1 stops two runs writing the same file.",
+            "A normal run takes about 2.5 seconds, well inside the free tier.",
+        ],
+    },
+    {
+        service: "Amazon CloudWatch",
+        url: "https://aws.amazon.com/cloudwatch/",
+        role: "Logs and alarm",
+        details: [
+            "Lambda logs are kept for 14 days.",
+            "An alarm goes into the ALARM state if the ingest fails in any 15-minute window.",
         ],
     },
     {
@@ -114,8 +158,8 @@ const pipeline = [
                 <Ext href="https://github.com/features/actions">
                     GitHub Actions
                 </Ext>{" "}
-                runs lint, a TypeScript type check and a full production build
-                on every pull request.
+                runs lint, unit tests, a TypeScript type check and a full
+                production build on every pull request.
             </>
         ),
     },
@@ -151,18 +195,38 @@ const pipeline = [
                 <Ext href="https://aws.amazon.com/cloudformation/">
                     CloudFormation
                 </Ext>{" "}
-                templates define the hosted zone, bucket, CloudFront
-                distribution, function, DNS records and deploy user, linted with{" "}
+                templates define the hosted zone, buckets, CloudFront
+                distribution, function, DNS records and deploy user. The data
+                pipeline uses{" "}
+                <Ext href="https://aws.amazon.com/serverless/sam/">AWS SAM</Ext>
+                . Both are linted with{" "}
                 <Ext href="https://github.com/aws-cloudformation/cfn-lint">
                     cfn-lint
                 </Ext>
-                . Infrastructure changes must be made by hand.
+                , and each change is previewed as a change set before it is
+                applied by hand.
             </>
         ),
     },
 ];
 
 const decisions = [
+    {
+        title: "Static JSON before a database",
+        body: (
+            <>
+                The first version of the data pipeline writes pre-computed
+                JSON files to S3 instead of loading a database behind an API.
+                It costs cents a month and has almost nothing to break. A
+                database (
+                <Ext href="https://aws.amazon.com/rds/aurora/dsql/">
+                    Aurora DSQL
+                </Ext>
+                ) and API come later, reusing the same ingest code and the
+                archived raw files.
+            </>
+        ),
+    },
     {
         title: "Working within service control policies",
         body: (
@@ -261,7 +325,11 @@ export default function SiteArchitecture() {
                     {`Browser
   └─▶ Route 53         andyouandyou.com → CloudFront alias (A / AAAA)
        └─▶ CloudFront  TLS (ACM cert) · cache · CloudFront Function URL rewrite
-            └─▶ S3     private bucket, read via Origin Access Control`}
+            ├─▶ S3     site bucket, read via Origin Access Control
+            └─▶ S3     data bucket for /data/*, 60 s cache
+
+EventBridge Scheduler (every 5 min)
+  └─▶ Lambda           AEMO NEMWeb → validate → data/*.json in the data bucket`}
                 </pre>
             </section>
 

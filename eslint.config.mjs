@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Bundled ingest Lambda (bun run build:ingest)
+    "ingest/dist/**",
     // Local reference repos (gitignored)
     ".claude/**",
   ]),

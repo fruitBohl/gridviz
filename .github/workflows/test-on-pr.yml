@@ -27,6 +27,7 @@ jobs:
           key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
       - run: bun install --frozen-lockfile
       - run: bun run lint
+      - run: bun test
       - run: bunx next typegen
       - run: bunx tsc --noEmit
       - run: bun run build

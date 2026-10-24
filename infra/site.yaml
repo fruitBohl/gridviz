@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: gridviz static site (S3 + CloudFront + DNS records + CI deploy user)
+Description: gridviz static site (S3 + CloudFront + DNS records + CI deploy user), plus /data/* from gridviz-data
 
 Parameters:
   DomainName:
@@ -44,6 +44,25 @@ Resources:
               StringEquals:
                 AWS:SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${Distribution}'
 
+  DataCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub '${AWS::StackName}-data'
+        Comment: NEM data JSON, refreshed every 5 minutes
+        MinTTL: 0
+        DefaultTTL: 60
+        MaxTTL: 300
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingGzip: true
+          EnableAcceptEncodingBrotli: true
+          CookiesConfig:
+            CookieBehavior: none
+          HeadersConfig:
+            HeaderBehavior: none
+          QueryStringsConfig:
+            QueryStringBehavior: none
+
   # Next static export writes /about as about.html; S3 has no key without the suffix
   RewriteFunction:
     Type: AWS::CloudFront::Function
@@ -84,6 +103,11 @@ Resources:
             OriginAccessControlId: !GetAtt SiteOAC.Id
             S3OriginConfig:
               OriginAccessIdentity: ''
+          - Id: DataBucket
+            DomainName: !ImportValue gridviz-data-bucket-domain
+            OriginAccessControlId: !GetAtt SiteOAC.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ''
         DefaultCacheBehavior:
           TargetOriginId: SiteBucket
           ViewerProtocolPolicy: redirect-to-https
@@ -92,6 +116,12 @@ Resources:
           FunctionAssociations:
             - EventType: viewer-request
               FunctionARN: !GetAtt RewriteFunction.FunctionMetadata.FunctionARN
+        CacheBehaviors:
+          - PathPattern: data/*
+            TargetOriginId: DataBucket
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: !Ref DataCachePolicy
+            Compress: true
         # Missing keys come back as 403 from S3 under OAC
         CustomErrorResponses:
           - ErrorCode: 403
