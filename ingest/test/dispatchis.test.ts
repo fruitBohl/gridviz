@@ -45,23 +45,24 @@ test("buildIntervals on the fixture's tables matches parseDispatchIsZip", () => 
   expect(buildIntervals(parseAemoCsv(strFromU8(csv)))).toEqual(parseDispatchIsZip(zip));
 });
 
-// Real rows for the interval ending 2024-10-01 00:05, cut from the October 2024 MMSDM monthly archive
+// Real rows cut from the October 2024 MMSDM monthly archive: the intervals ending 2024-10-01 00:05
+// and 2024-10-17 10:25, when SA1 hit the $17,500/MWh market price cap
 describe("buildIntervals on MMSDM single-table files", () => {
   const read = (table: string) =>
-    parseAemoCsv(readFileSync(join(import.meta.dir, `fixtures/mmsdm/${table}_20241001_0005.CSV`), "utf8"));
+    parseAemoCsv(readFileSync(join(import.meta.dir, `fixtures/mmsdm/${table}_202410.CSV`), "utf8"));
   const tables = new Map([
     ...read("DISPATCHPRICE"),
     ...read("DISPATCHREGIONSUM"),
     ...read("DISPATCHINTERCONNECTORRES"),
   ]);
 
-  test("the three files merge into one interval with all five regions", () => {
+  const [first, capped] = buildIntervals(tables);
+
+  test("the three files merge into intervals with all five regions", () => {
     expect(tables.get("DISPATCH.REGIONSUM")!.version).toBe(8);
-    const [interval, ...rest] = buildIntervals(tables);
-    expect(rest).toHaveLength(0);
-    expect(interval.t).toBe("2024-10-01T00:05:00+10:00");
-    expect(Object.keys(interval.regions).sort()).toEqual(["NSW1", "QLD1", "SA1", "TAS1", "VIC1"]);
-    expect(interval.regions.NSW1).toEqual({
+    expect(buildIntervals(tables).map((i) => i.t)).toEqual(["2024-10-01T00:05:00+10:00", "2024-10-17T10:25:00+10:00"]);
+    expect(Object.keys(first.regions).sort()).toEqual(["NSW1", "QLD1", "SA1", "TAS1", "VIC1"]);
+    expect(first.regions.NSW1).toStrictEqual({
       price: 104.1,
       demand: 7403.93,
       availableGeneration: 9577.42,
@@ -69,9 +70,15 @@ describe("buildIntervals on MMSDM single-table files", () => {
     });
   });
 
+  test("a price at the market price cap carries APCFLAG 4; other regions carry no flags", () => {
+    expect(capped.regions.SA1.price).toBe(17500);
+    expect(capped.regions.SA1.priceFlags).toBe(4);
+    expect(capped.regions.VIC1).not.toContainKey("priceFlags");
+    expect(capped).not.toContainKey("intervention");
+  });
+
   test("interconnectors as they were in 2024, before NSW1-SA1", () => {
-    const [interval] = buildIntervals(tables);
-    expect(Object.keys(interval.interconnectors).sort()).toEqual([
+    expect(Object.keys(first.interconnectors).sort()).toEqual([
       "N-Q-MNSP1",
       "NSW1-QLD1",
       "T-V-MNSP1",
@@ -79,7 +86,7 @@ describe("buildIntervals on MMSDM single-table files", () => {
       "V-SA",
       "VIC1-NSW1",
     ]);
-    expect(interval.interconnectors["NSW1-QLD1"]).toEqual({ mwFlow: 302.24, exportLimit: 381.87, importLimit: -842.11 });
+    expect(first.interconnectors["NSW1-QLD1"]).toEqual({ mwFlow: 302.24, exportLimit: 381.87, importLimit: -842.11 });
   });
 
   test("a single table on its own is not enough", () => {
@@ -115,6 +122,52 @@ describe("interventions", () => {
   test("quantities come from the physical run (INTERVENTION=1), in any row order", () => {
     expect(interval.regions.SA1.demand).toBe(1100);
     expect(interval.interconnectors["V-SA"].mwFlow).toBe(50);
+  });
+
+  test("the interval is flagged as an intervention", () => {
+    expect(interval.intervention).toBe(true);
+  });
+
+  test("an INTERVENTION=1 row in any one table is enough", () => {
+    const [flagged] = parseDispatchIsCsv(
+      dispatchCsv(t, { interconnector: [valid.interconnector[0], { ...valid.interconnector[0], INTERVENTION: "1" }] }),
+    );
+    expect(flagged.intervention).toBe(true);
+  });
+
+  test("a normal interval has no intervention key", () => {
+    expect(parseDispatchIsCsv(dispatchCsv(t))[0]).not.toContainKey("intervention");
+  });
+});
+
+describe("price flags", () => {
+  const t = "2026/10/24 15:05:00";
+  const valid = validRows(t);
+  const withSa = (overrides: Record<string, string>) =>
+    parseDispatchIsCsv(
+      dispatchCsv(t, { price: valid.price.map((r) => (r.REGIONID === "SA1" ? { ...r, ...overrides } : r)) }),
+    )[0].regions;
+
+  test("APCFLAG is kept as the raw bit field, on that region only", () => {
+    const regions = withSa({ APCFLAG: "5" });
+    expect(regions.SA1.priceFlags).toBe(5);
+    expect(regions.NSW1).not.toContainKey("priceFlags");
+  });
+
+  test("a market suspension", () => {
+    const regions = withSa({ MARKETSUSPENDEDFLAG: "1" });
+    expect(regions.SA1.suspended).toBe(true);
+    expect(regions.NSW1).not.toContainKey("suspended");
+  });
+
+  test("flags come from the pricing run, not the intervention run", () => {
+    const sa = valid.price.find((r) => r.REGIONID === "SA1")!;
+    const [interval] = parseDispatchIsCsv(
+      dispatchCsv(t, {
+        price: [...valid.price.filter((r) => r !== sa), sa, { ...sa, INTERVENTION: "1", APCFLAG: "1" }],
+      }),
+    );
+    expect(interval.regions.SA1).not.toContainKey("priceFlags");
   });
 });
 

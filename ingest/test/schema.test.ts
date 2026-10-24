@@ -67,6 +67,9 @@ describe("field values", () => {
     ["an unknown INTERVENTION flag", "regionSum", { INTERVENTION: "2" }, "INTERVENTION"],
     ["a reformatted timestamp", "price", { SETTLEMENTDATE: "2026-10-24T15:05:00" }, "YYYY/MM/DD HH:MM:SS"],
     ["a malformed interconnector ID", "interconnector", { INTERCONNECTORID: "vic sa" }, "interconnector ID"],
+    ["a non-integer APCFLAG", "price", { APCFLAG: "0.5" }, "bit field"],
+    ["an APCFLAG with an unknown bit", "price", { APCFLAG: "32" }, "APCFLAG"],
+    ["an unknown MARKETSUSPENDEDFLAG", "price", { MARKETSUSPENDEDFLAG: "Y" }, "MARKETSUSPENDEDFLAG"],
   ] as const)("%s", (_, key, overrides, expected) => {
     expect(formatError(dispatchCsv(t, withRow(key, overrides))).message).toContain(expected);
   });

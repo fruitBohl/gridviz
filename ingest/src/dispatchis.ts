@@ -7,7 +7,22 @@ export type RegionInterval = {
   demand: number; // TOTALDEMAND, MW
   availableGeneration: number; // MW
   netInterchange: number; // MW, positive = exporting
+  /** APCFLAG bits, only when non-zero; see PRICE_FLAGS. */
+  priceFlags?: number;
+  suspended?: true;
 };
+
+/**
+ * APCFLAG bits: how the dispatch price differs from the original price (ROP) the dispatch
+ * algorithm calculated. From AEMO's MMS data model, DISPATCHPRICE, checked 2026-10-24.
+ */
+export const PRICE_FLAGS = {
+  administeredPrice: 1, // an administered price cap or floor was binding
+  vollOverride: 2,
+  priceLimit: 4, // the market price cap or floor was binding
+  manualPrice: 8,
+  lossFactorScaling: 16, // price scaled by an inter-regional loss factor
+} as const;
 
 export type InterconnectorInterval = {
   mwFlow: number; // MW, positive = flowing in the direction of the ID (e.g. NSW1 -> QLD1)
@@ -20,6 +35,8 @@ export type DispatchInterval = {
   t: string; // interval end, market time (AEST, UTC+10)
   regions: Record<string, RegionInterval>;
   interconnectors: Record<string, InterconnectorInterval>;
+  /** AEMO ran an intervention: price is from the pricing run, quantities from what was physically dispatched. */
+  intervention?: true;
 };
 
 type Run = { SETTLEMENTDATE: string; INTERVENTION: "0" | "1" };
@@ -56,12 +73,16 @@ export function buildIntervals(tables: Map<string, Table>): DispatchInterval[] {
     return found;
   };
 
+  const priceRows = readTable(tables, DISPATCHIS_TABLES.price);
+  const sumRows = readTable(tables, DISPATCHIS_TABLES.regionSum);
+  const flowRows = readTable(tables, DISPATCHIS_TABLES.interconnector);
+
   const prices = pick(
-    readTable(tables, DISPATCHIS_TABLES.price).filter((r) => r.INTERVENTION === "0"),
+    priceRows.filter((r) => r.INTERVENTION === "0"),
     (r) => r.REGIONID,
     "0",
   );
-  const sums = pick(readTable(tables, DISPATCHIS_TABLES.regionSum), (r) => r.REGIONID, "1");
+  const sums = pick(sumRows, (r) => r.REGIONID, "1");
 
   for (const row of sums.values()) {
     const price = prices.get(`${row.SETTLEMENTDATE}|${row.REGIONID}`);
@@ -71,16 +92,22 @@ export function buildIntervals(tables: Map<string, Table>): DispatchInterval[] {
       demand: row.TOTALDEMAND,
       availableGeneration: row.AVAILABLEGENERATION,
       netInterchange: row.NETINTERCHANGE,
+      ...(price.APCFLAG !== 0 && { priceFlags: price.APCFLAG }),
+      ...(price.MARKETSUSPENDEDFLAG === "1" && { suspended: true }),
     };
   }
 
-  const flows = pick(readTable(tables, DISPATCHIS_TABLES.interconnector), (r) => r.INTERCONNECTORID, "1");
+  const flows = pick(flowRows, (r) => r.INTERCONNECTORID, "1");
   for (const row of flows.values()) {
     interval(row.SETTLEMENTDATE).interconnectors[row.INTERCONNECTORID] = {
       mwFlow: row.MWFLOW,
       exportLimit: row.EXPORTLIMIT,
       importLimit: row.IMPORTLIMIT,
     };
+  }
+
+  for (const row of [...priceRows, ...sumRows, ...flowRows]) {
+    if (row.INTERVENTION === "1") interval(row.SETTLEMENTDATE).intervention = true;
   }
 
   for (const { t, regions, interconnectors } of intervals.values()) {
