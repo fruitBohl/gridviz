@@ -1,6 +1,9 @@
 import Link from "next/link";
 
-const links = [{ href: "/site-architecture", label: "Site Architecture" }];
+const links = [
+  { href: "/live", label: "Live" },
+  { href: "/site-architecture", label: "Site Architecture" },
+];
 
 export function Navbar() {
   return (
