@@ -68,8 +68,8 @@ export async function run({
   fetchListing,
   fetchFile,
   archiveRaw = true,
-  maxFiles = 300,
-  concurrency = 8,
+  maxFiles = 100,
+  concurrency = 2,
   now = () => new Date(),
   log = () => {},
 }: RunOptions): Promise<RunResult> {
@@ -84,9 +84,10 @@ export async function run({
     ? listing.filter((f) => f.settlementDate > latest.settlementDate)
     : listing.filter((f) => f.settlementDate >= startOfTradingDay(newest));
 
-  const files = pending.slice(-maxFiles);
+  // Oldest first: latest.json only moves forward, so skipping older files would lose them for good
+  const files = pending.slice(0, maxFiles);
   if (pending.length > files.length) {
-    log("skipping older files beyond maxFiles", { skipped: pending.length - files.length });
+    log("deferring newer files to the next run", { deferred: pending.length - files.length });
   }
   if (files.length === 0) {
     log("up to date", { settlementDate: latest?.settlementDate });
