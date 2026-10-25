@@ -5,6 +5,7 @@ import type { Latest } from "@/ingest/src/output";
 import { dateTime, formatMw, formatPrice } from "@/lib/format";
 import { INTERCONNECTORS, REGIONS } from "@/lib/nem";
 import { Banner } from "./Banner";
+import { LiveChart } from "./LiveChart";
 import { Table } from "./Table";
 
 const REFRESH_MS = 60_000;
@@ -73,43 +74,48 @@ export function LiveTable() {
             5-minute interval ending {dateTime.format(new Date(data.settlementDate))} AEST
           </p>
 
-          <section className="flex flex-col gap-3">
-            <h2 className="text-2xl font-semibold tracking-tight">Regions</h2>
-            <Bordered>
-              <Table
-                headers={["Region", "Price ($/MWh)", "Demand", "Net interchange"]}
-                rows={Object.entries(data.regions)
-                  .sort(([a], [b]) => a.localeCompare(b))
-                  .map(([id, r]) => [
-                    REGIONS[id]?.name ?? id,
-                    formatPrice(r.price),
-                    formatMw(r.demand),
-                    `${r.netInterchange > 0 ? "Exporting" : "Importing"} ${formatMw(Math.abs(r.netInterchange))}`,
-                  ])}
-              />
-            </Bordered>
-          </section>
+          {/* 3:2 fits the widest rows of each table at max-w-4xl */}
+          <div className="grid gap-8 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+            <section className="flex flex-col gap-3">
+              <h2 className="text-2xl font-semibold tracking-tight">Regions</h2>
+              <Bordered>
+                <Table
+                  headers={["Region", "Price ($/MWh)", "Demand", "Net interchange"]}
+                  rows={Object.entries(data.regions)
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([id, r]) => [
+                      REGIONS[id]?.name ?? id,
+                      formatPrice(r.price),
+                      formatMw(r.demand),
+                      `${r.netInterchange > 0 ? "Exporting" : "Importing"} ${formatMw(Math.abs(r.netInterchange))}`,
+                    ])}
+                />
+              </Bordered>
+            </section>
 
-          <section className="flex flex-col gap-3">
-            <h2 className="text-2xl font-semibold tracking-tight">Interconnectors</h2>
-            <Bordered>
-              <Table
-                headers={["Interconnector", "Direction", "Flow"]}
-                rows={Object.entries(data.interconnectors)
-                  .sort(([a], [b]) => a.localeCompare(b))
-                  .map(([id, ic]) => {
-                    const known = INTERCONNECTORS[id];
-                    const [from, to] = known ? [known.from, known.to] : id.split("-");
-                    const forward = ic.mwFlow >= 0;
-                    return [
-                      known?.name ?? id,
-                      forward ? `${from} → ${to}` : `${to} → ${from}`,
-                      formatMw(Math.abs(ic.mwFlow)),
-                    ];
-                  })}
-              />
-            </Bordered>
-          </section>
+            <section className="flex flex-col gap-3">
+              <h2 className="text-2xl font-semibold tracking-tight">Interconnectors</h2>
+              <Bordered>
+                <Table
+                  headers={["Interconnector", "Direction", "Flow"]}
+                  rows={Object.entries(data.interconnectors)
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([id, ic]) => {
+                      const known = INTERCONNECTORS[id];
+                      const [from, to] = known ? [known.from, known.to] : id.split("-");
+                      const forward = ic.mwFlow >= 0;
+                      return [
+                        known?.name ?? id,
+                        forward ? `${from} → ${to}` : `${to} → ${from}`,
+                        formatMw(Math.abs(ic.mwFlow)),
+                      ];
+                    })}
+                />
+              </Bordered>
+            </section>
+          </div>
+
+          <LiveChart latest={data} />
         </>
       )}
     </div>
@@ -117,5 +123,9 @@ export function LiveTable() {
 }
 
 function Bordered({ children }: { children: React.ReactNode }) {
-  return <div className="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">{children}</div>;
+  return (
+    <div className="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800 [&_tbody]:text-xs [&_tbody]:whitespace-nowrap">
+      {children}
+    </div>
+  );
 }

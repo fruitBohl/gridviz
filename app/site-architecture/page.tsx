@@ -100,7 +100,7 @@ export default function SiteArchitecture() {
             ├─▶ S3     site bucket
             └─▶ S3     data bucket (/data/*)
                          latest.json                latest interval (Live)
-                         days/<date>.json           one file per trading day
+                         days/<date>.json           one file per trading day (Live, Plots)
                          plots/<measure>-daily      daily means (Plots)
                          plots/<measure>-extremes   highest and lowest days (Plots)
 

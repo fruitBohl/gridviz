@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { DispatchInterval } from "../src/dispatchis";
-import { mergeIntervals, startOfTradingDay, toLatest, tradingDate } from "../src/output";
+import { last24Hours, mergeIntervals, startOfTradingDay, toLatest, tradingDate } from "../src/output";
 
 const at = (t: string, price = 1): DispatchInterval => ({
   t,
@@ -60,4 +60,18 @@ test("toLatest renames t to settlementDate", () => {
     interconnectors: {},
   });
   expect("t" in latest).toBe(false);
+});
+
+describe("last24Hours", () => {
+  test("keeps 24 hours across two day files and adds latest.json when the day file lags", () => {
+    const now = new Date("2026-10-25T05:00:00Z");
+    const yesterday = { tradingDate: "2026-10-24", intervals: [at("2026-10-24T14:55:00+10:00"), at("2026-10-24T15:05:00+10:00")] };
+    const today = { tradingDate: "2026-10-25", intervals: [at("2026-10-25T14:55:00+10:00")] };
+    const latest = toLatest(at("2026-10-25T15:00:00+10:00", 9), now);
+    expect(last24Hours([yesterday, undefined, today], latest).map((i) => i.t)).toEqual([
+      "2026-10-24T15:05:00+10:00",
+      "2026-10-25T14:55:00+10:00",
+      "2026-10-25T15:00:00+10:00",
+    ]);
+  });
 });
