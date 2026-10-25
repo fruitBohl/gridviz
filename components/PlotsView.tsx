@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { createAggregator, plotKey, type Metric, type PlotFile } from "@/ingest/src/aggregate";
-import { dayKey, tradingDate, type DayFile } from "@/ingest/src/output";
+import { tradingDate } from "@/ingest/src/output";
 import { addDays, datesBetween } from "@/ingest/src/time";
-import { loadJson } from "@/lib/load";
+import { fetchDay, loadJson } from "@/lib/load";
 import { Banner } from "./Banner";
 import { DailyMeans } from "./DailyMeans";
 import { ExtremeDays } from "./ExtremeDays";
@@ -17,13 +17,6 @@ type TailState =
   | { status: "loading" }
   | { status: "ok"; tails: Tails; throughDate: string; missingDays: number }
   | { status: "error"; message: string };
-
-async function fetchDay(date: string, today: string): Promise<DayFile | undefined> {
-  const res = await fetch(`/${dayKey(date)}`, date === today ? { cache: "no-store" } : {});
-  if (res.status === 404 || res.status === 403) return undefined;
-  if (!res.ok) throw new Error(`/${dayKey(date)} returned ${res.status}`);
-  return (await res.json()) as DayFile;
-}
 
 /**
  * The plot files run to the last daily rebuild. The days after it, today included, come from the

@@ -1,5 +1,5 @@
 import type { DispatchInterval } from "./dispatchis";
-import { addDays, AEST_MS, INTERVAL_MS } from "./time";
+import { addDays, AEST_MS, DAY_MS, INTERVAL_MS } from "./time";
 
 export type Latest = Omit<DispatchInterval, "t"> & {
   settlementDate: string;
@@ -42,4 +42,17 @@ export function mergeIntervals(
 export function toLatest(interval: DispatchInterval, now: Date): Latest {
   const { t, ...rest } = interval;
   return { settlementDate: t, generatedAt: now.toISOString(), ...rest };
+}
+
+/**
+ * The 24 hours up to the latest interval. latest.json is added too, as CloudFront can still be
+ * serving a day file from before it.
+ */
+export function last24Hours(days: (DayFile | undefined)[], latest: Latest): DispatchInterval[] {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- dropped, not part of an interval
+  const { settlementDate: t, generatedAt, ...rest } = latest;
+  const endMs = Date.parse(t);
+  const intervals = [...days.flatMap((d) => d?.intervals ?? []), { t, ...rest }];
+  const inWindow = intervals.filter((i) => Date.parse(i.t) > endMs - DAY_MS && Date.parse(i.t) <= endMs);
+  return mergeIntervals(undefined, tradingDate(t), inWindow).intervals;
 }

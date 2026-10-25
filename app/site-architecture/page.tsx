@@ -40,7 +40,7 @@ const services: { service: string; url: string; role: string }[] = [
     {
         service: "CloudWatch",
         url: "https://aws.amazon.com/cloudwatch/",
-        role: "Logs, and an error alarm per Lambda",
+        role: "Logs, an error alarm per Lambda, and an alarm if ingest stops running",
     },
     {
         service: "Next.js static export",
@@ -100,7 +100,7 @@ export default function SiteArchitecture() {
             ├─▶ S3     site bucket
             └─▶ S3     data bucket (/data/*)
                          latest.json                latest interval (Live)
-                         days/<date>.json           one file per trading day
+                         days/<date>.json           one file per trading day (Live, Plots)
                          plots/<measure>-daily      daily means (Plots)
                          plots/<measure>-extremes   highest and lowest days (Plots)
 
