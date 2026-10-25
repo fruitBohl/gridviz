@@ -40,7 +40,7 @@ const services: { service: string; url: string; role: string }[] = [
     {
         service: "CloudWatch",
         url: "https://aws.amazon.com/cloudwatch/",
-        role: "Logs, and an error alarm per Lambda",
+        role: "Logs, an error alarm per Lambda, and an alarm if ingest stops running",
     },
     {
         service: "Next.js static export",
