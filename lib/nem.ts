@@ -1,3 +1,4 @@
+import type { Layout } from "plotly.js-dist-min";
 import type { Metric, PlotEventKind } from "@/ingest/src/aggregate";
 
 export const REGION_IDS = ["NSW1", "QLD1", "SA1", "TAS1", "VIC1"] as const;
@@ -55,6 +56,15 @@ export const CHROME: Record<ColorMode, { text: string; muted: string; grid: stri
   light: { text: "#52514e", muted: "#898781", grid: "#e1e0d9", axis: "#c3c2b7" },
   dark: { text: "#c3c2b7", muted: "#898781", grid: "#2c2c2a", axis: "#383835" },
 };
+
+export const baseLayout = (mode: ColorMode): Partial<Layout> => ({
+  paper_bgcolor: "rgba(0,0,0,0)",
+  plot_bgcolor: "rgba(0,0,0,0)",
+  font: { family: 'system-ui, -apple-system, "Segoe UI", sans-serif', size: 12, color: CHROME[mode].text },
+  hovermode: "x unified",
+});
+
+export const hoverValue = (metric: Metric) => (metric === "price" ? "$%{y:,.2f}/MWh" : "%{y:,.0f} MW");
 
 /** Bands use status colours, which never double as series colours, and always come with a label. */
 export const EVENTS: Record<PlotEventKind, { label: string; color: string; description: string }> = {

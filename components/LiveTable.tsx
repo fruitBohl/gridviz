@@ -2,20 +2,13 @@
 
 import { useEffect, useState } from "react";
 import type { Latest } from "@/ingest/src/output";
+import { dateTime, formatMw, formatPrice } from "@/lib/format";
 import { INTERCONNECTORS, REGIONS } from "@/lib/nem";
 import { Banner } from "./Banner";
+import { Table } from "./Table";
 
 const REFRESH_MS = 60_000;
 const STALE_AFTER_MS = 15 * 60_000;
-
-const price = new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" });
-const mw = new Intl.NumberFormat("en-AU", { maximumFractionDigits: 0 });
-/** NEM market time is AEST all year; Brisbane has no daylight saving. */
-const aest = new Intl.DateTimeFormat("en-AU", {
-  timeZone: "Australia/Brisbane",
-  dateStyle: "medium",
-  timeStyle: "short",
-});
 
 type State =
   | { status: "loading" }
@@ -77,41 +70,45 @@ export function LiveTable() {
       {data && (
         <>
           <p className="text-sm text-zinc-500">
-            5-minute interval ending {aest.format(new Date(data.settlementDate))} AEST
+            5-minute interval ending {dateTime.format(new Date(data.settlementDate))} AEST
           </p>
 
           <section className="flex flex-col gap-3">
             <h2 className="text-2xl font-semibold tracking-tight">Regions</h2>
-            <Table
-              headers={["Region", "Price ($/MWh)", "Demand (MW)", "Net interchange (MW)"]}
-              rows={Object.entries(data.regions)
-                .sort(([a], [b]) => a.localeCompare(b))
-                .map(([id, r]) => [
-                  REGIONS[id]?.name ?? id,
-                  price.format(r.price),
-                  mw.format(r.demand),
-                  `${r.netInterchange > 0 ? "Exporting" : "Importing"} ${mw.format(Math.abs(r.netInterchange))}`,
-                ])}
-            />
+            <Bordered>
+              <Table
+                headers={["Region", "Price ($/MWh)", "Demand", "Net interchange"]}
+                rows={Object.entries(data.regions)
+                  .sort(([a], [b]) => a.localeCompare(b))
+                  .map(([id, r]) => [
+                    REGIONS[id]?.name ?? id,
+                    formatPrice(r.price),
+                    formatMw(r.demand),
+                    `${r.netInterchange > 0 ? "Exporting" : "Importing"} ${formatMw(Math.abs(r.netInterchange))}`,
+                  ])}
+              />
+            </Bordered>
           </section>
 
           <section className="flex flex-col gap-3">
             <h2 className="text-2xl font-semibold tracking-tight">Interconnectors</h2>
-            <Table
-              headers={["Interconnector", "Flow", "MW"]}
-              rows={Object.entries(data.interconnectors)
-                .sort(([a], [b]) => a.localeCompare(b))
-                .map(([id, ic]) => {
-                  const known = INTERCONNECTORS[id];
-                  const [from, to] = known ? [known.from, known.to] : id.split("-");
-                  const forward = ic.mwFlow >= 0;
-                  return [
-                    known?.name ?? id,
-                    forward ? `${from} → ${to}` : `${to} → ${from}`,
-                    mw.format(Math.abs(ic.mwFlow)),
-                  ];
-                })}
-            />
+            <Bordered>
+              <Table
+                headers={["Interconnector", "Direction", "Flow"]}
+                rows={Object.entries(data.interconnectors)
+                  .sort(([a], [b]) => a.localeCompare(b))
+                  .map(([id, ic]) => {
+                    const known = INTERCONNECTORS[id];
+                    const [from, to] = known ? [known.from, known.to] : id.split("-");
+                    const forward = ic.mwFlow >= 0;
+                    return [
+                      known?.name ?? id,
+                      forward ? `${from} → ${to}` : `${to} → ${from}`,
+                      formatMw(Math.abs(ic.mwFlow)),
+                    ];
+                  })}
+              />
+            </Bordered>
           </section>
         </>
       )}
@@ -119,31 +116,6 @@ export function LiveTable() {
   );
 }
 
-function Table({ headers, rows }: { headers: string[]; rows: string[][] }) {
-  return (
-    <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
-      <table className="w-full text-left text-sm">
-        <thead className="bg-zinc-50 text-zinc-500 dark:bg-zinc-900">
-          <tr>
-            {headers.map((h, i) => (
-              <th key={h} scope="col" className={`px-4 py-2 font-medium ${i > 0 ? "text-right" : ""}`}>
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-          {rows.map((cells) => (
-            <tr key={cells[0]}>
-              {cells.map((cell, i) => (
-                <td key={i} className={`px-4 py-2 ${i > 0 ? "text-right tabular-nums" : ""}`}>
-                  {cell}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+function Bordered({ children }: { children: React.ReactNode }) {
+  return <div className="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">{children}</div>;
 }

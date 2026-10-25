@@ -1,15 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { Annotation, Data, Layout, PlotlyHTMLElement, Shape } from "plotly.js-dist-min";
 import { appendTail, plotKey, type Metric, type PlotEvent, type PlotFile } from "@/ingest/src/aggregate";
 import { toMarketLabel } from "@/ingest/src/time";
 import { day, formatValue, labelMs, time } from "@/lib/format";
-import { loadJson } from "@/lib/load";
-import { CHARTS, CHROME, EVENTS, seriesColor, seriesName, SUSPENSION_PRICING, type ColorMode } from "@/lib/nem";
+import { baseLayout, CHARTS, CHROME, EVENTS, hoverValue, seriesColor, seriesName, SUSPENSION_PRICING, type ColorMode } from "@/lib/nem";
 import { Banner } from "./Banner";
+import { Disclosure } from "./Disclosure";
 import { MeasurePicker } from "./MeasurePicker";
+import { Table } from "./Table";
 import { useColorMode } from "./useColorMode";
+import { useJson } from "./useJson";
 import { usePlotly, type Figure } from "./usePlotly";
 
 function formatRange(e: PlotEvent): string {
@@ -28,17 +30,15 @@ const appliesTo = (e: PlotEvent, id: string) => !e.regions || e.regions.includes
 
 function buildFigure(data: PlotFile, id: string, mode: ColorMode): Figure {
   const chrome = CHROME[mode];
-  const ids = [id];
   const n = data.t.length;
   const partial = Boolean(data.partialLast) && n >= 2;
-  const valueFormat = data.metric === "price" ? "$%{y:,.2f}/MWh" : "%{y:,.0f} MW";
+  const valueFormat = hoverValue(data.metric);
 
-  const traces: Data[] = [];
-  for (const id of ids) {
-    const color = seriesColor(id, mode);
-    const name = seriesName(id);
-    const y = data.series[id];
-    traces.push({
+  const color = seriesColor(id, mode);
+  const name = seriesName(id);
+  const y = data.series[id];
+  const traces: Data[] = [
+    {
       type: "scatter",
       mode: "lines",
       name,
@@ -47,20 +47,21 @@ function buildFigure(data: PlotFile, id: string, mode: ColorMode): Figure {
       y: partial ? y.slice(0, n - 1) : y,
       line: { color, width: 2 },
       hovertemplate: `${name}: ${valueFormat}<extra></extra>`,
+    },
+  ];
+  // The last point is still filling in, so it hangs off a dotted segment
+  if (partial) {
+    traces.push({
+      type: "scatter",
+      mode: "lines",
+      name,
+      showlegend: false,
+      x: data.t.slice(n - 2),
+      y: y.slice(n - 2),
+      line: { color, width: 2, dash: "dot" },
+      hoverinfo: ["skip", "all"],
+      hovertemplate: `${name}: ${valueFormat} (partial)<extra></extra>`,
     });
-    if (partial) {
-      traces.push({
-        type: "scatter",
-        mode: "lines",
-        name,
-        showlegend: false,
-        x: data.t.slice(n - 2),
-        y: y.slice(n - 2),
-        line: { color, width: 2, dash: "dot" },
-        hoverinfo: ["skip", "all"],
-        hovertemplate: `${name}: ${valueFormat} (partial)<extra></extra>`,
-      });
-    }
   }
 
   const shapes: Partial<Shape>[] = data.events.filter((e) => appliesTo(e, id)).map((e) => ({
@@ -80,42 +81,37 @@ function buildFigure(data: PlotFile, id: string, mode: ColorMode): Figure {
   const annotations: Partial<Annotation>[] = [];
   const dataStart = labelMs(data.t[0]);
   const dataEnd = Math.max(...Object.values(data.lastSeen).map(labelMs));
-  for (const id of ids) {
-    const marks: [string, string][] = [];
-    if (labelMs(data.firstSeen[id]) > dataStart) marks.push([data.firstSeen[id], "starts"]);
-    if (dataEnd - labelMs(data.lastSeen[id]) > 24 * 60 * 60 * 1000) marks.push([data.lastSeen[id], "stops"]);
-    for (const [at, what] of marks) {
-      shapes.push({
-        type: "line",
-        xref: "x",
-        yref: "paper",
-        x0: at,
-        x1: at,
-        y0: 0,
-        y1: 1,
-        line: { color: seriesColor(id, mode), width: 1.5, dash: "dot" },
-      });
-      annotations.push({
-        x: at,
-        xref: "x",
-        y: 1,
-        yref: "paper",
-        yanchor: "top",
-        xanchor: "right",
-        text: `${seriesName(id)} ${what} ${day.format(new Date(labelMs(at)))}`,
-        showarrow: false,
-        font: { color: chrome.text, size: 11 },
-      });
-    }
+  const marks: [string, string][] = [];
+  if (labelMs(data.firstSeen[id]) > dataStart) marks.push([data.firstSeen[id], "starts"]);
+  if (dataEnd - labelMs(data.lastSeen[id]) > 24 * 60 * 60 * 1000) marks.push([data.lastSeen[id], "stops"]);
+  for (const [at, what] of marks) {
+    shapes.push({
+      type: "line",
+      xref: "x",
+      yref: "paper",
+      x0: at,
+      x1: at,
+      y0: 0,
+      y1: 1,
+      line: { color, width: 1.5, dash: "dot" },
+    });
+    annotations.push({
+      x: at,
+      xref: "x",
+      y: 1,
+      yref: "paper",
+      yanchor: "top",
+      xanchor: "right",
+      text: `${name} ${what} ${day.format(new Date(labelMs(at)))}`,
+      showarrow: false,
+      font: { color: chrome.text, size: 11 },
+    });
   }
 
   const layout: Partial<Layout> = {
+    ...baseLayout(mode),
     height: 420,
     margin: { l: 64, r: 16, t: 40, b: 16 },
-    paper_bgcolor: "rgba(0,0,0,0)",
-    plot_bgcolor: "rgba(0,0,0,0)",
-    font: { family: 'system-ui, -apple-system, "Segoe UI", sans-serif', size: 12, color: chrome.text },
-    hovermode: "x unified",
     xaxis: {
       type: "date",
       gridcolor: chrome.grid,
@@ -138,23 +134,8 @@ function buildFigure(data: PlotFile, id: string, mode: ColorMode): Figure {
 export function DailyMeans({ tails }: { tails?: Partial<Record<Metric, PlotFile>> }) {
   const [metric, setMetric] = useState<Metric>("price");
   const [picked, setPicked] = useState<string>();
-  const [file, setFile] = useState<PlotFile>();
-  const [error, setError] = useState<{ metric: Metric; message: string }>();
+  const { data: file, error: failed, loading } = useJson<PlotFile>(`/${plotKey(metric)}`);
   const mode = useColorMode();
-
-  useEffect(() => {
-    let cancelled = false;
-    loadJson<PlotFile>(`/${plotKey(metric)}`).then(
-      (loaded) => !cancelled && setFile(loaded),
-      (err: Error) => !cancelled && setError({ metric, message: err.message }),
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [metric]);
-
-  const failed = error?.metric === metric ? error.message : undefined;
-  const loading = !failed && file?.metric !== metric;
   const tail = file && tails?.[file.metric];
   const data = useMemo(() => (file && tail ? appendTail(file, tail) : file), [file, tail]);
   const ids = data ? Object.keys(data.series) : [];
@@ -237,10 +218,7 @@ function EventKey({ events }: { events: PlotEvent[] }) {
 function EventList({ events, onZoom }: { events: PlotEvent[]; onZoom: (e: PlotEvent) => void }) {
   if (events.length === 0) return null;
   return (
-    <details className="rounded-lg border border-zinc-200 text-sm dark:border-zinc-800">
-      <summary className="cursor-pointer px-4 py-2 text-zinc-600 dark:text-zinc-400">
-        {events.length} flagged {events.length === 1 ? "period" : "periods"} on this chart
-      </summary>
+    <Disclosure summary={`${events.length} flagged ${events.length === 1 ? "period" : "periods"} on this chart`}>
       <ol className="divide-y divide-zinc-200 dark:divide-zinc-800">
         {events.map((e) => (
           <li key={`${e.kind}-${e.start}`} className="flex items-start gap-3 px-4 py-2">
@@ -267,7 +245,7 @@ function EventList({ events, onZoom }: { events: PlotEvent[]; onZoom: (e: PlotEv
           </li>
         ))}
       </ol>
-    </details>
+    </Disclosure>
   );
 }
 
@@ -275,42 +253,20 @@ function TableView({ data }: { data: PlotFile }) {
   const rows = Object.entries(data.series).map(([id, values]) => {
     const known = values.filter((v): v is number => v !== null);
     const mean = known.length ? known.reduce((a, b) => a + b, 0) / known.length : null;
-    return {
-      id,
-      latest: values.at(-1) ?? null,
-      mean,
-      min: known.length ? Math.min(...known) : null,
-      max: known.length ? Math.max(...known) : null,
-      first: data.firstSeen[id],
-    };
+    const min = known.length ? Math.min(...known) : null;
+    const max = known.length ? Math.max(...known) : null;
+    return [
+      seriesName(id),
+      ...[values.at(-1) ?? null, mean, min, max].map((v) => formatValue(data.metric, v)),
+      day.format(new Date(labelMs(data.firstSeen[id]))),
+    ];
   });
   return (
-    <details className="rounded-lg border border-zinc-200 text-sm dark:border-zinc-800">
-      <summary className="cursor-pointer px-4 py-2 text-zinc-600 dark:text-zinc-400">Table</summary>
-      <div className="overflow-x-auto">
-        <table className="w-full text-left">
-          <thead className="bg-zinc-50 text-zinc-500 dark:bg-zinc-900">
-            <tr>
-              {["Series", `Latest daily mean${data.partialLast ? " (partial)" : ""}`, "Mean of daily means", "Lowest", "Highest", "Data from"].map((h, i) => (
-                <th key={h} scope="col" className={`px-4 py-2 font-medium ${i > 0 ? "text-right" : ""}`}>
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-            {rows.map((r) => (
-              <tr key={r.id}>
-                <th scope="row" className="px-4 py-2 font-normal">{seriesName(r.id)}</th>
-                {[r.latest, r.mean, r.min, r.max].map((v, i) => (
-                  <td key={i} className="px-4 py-2 text-right tabular-nums">{formatValue(data.metric, v)}</td>
-                ))}
-                <td className="px-4 py-2 text-right tabular-nums">{day.format(new Date(labelMs(r.first)))}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </details>
+    <Disclosure summary="Table">
+      <Table
+        headers={["Series", `Latest daily mean${data.partialLast ? " (partial)" : ""}`, "Mean of daily means", "Lowest", "Highest", "Data from"]}
+        rows={rows}
+      />
+    </Disclosure>
   );
 }
