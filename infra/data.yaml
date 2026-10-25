@@ -1,12 +1,12 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: gridviz NEM data (S3 data bucket, scheduled NEMWeb ingest Lambda and nightly plot rebuild Lambda)
+Description: gridviz NEM data (S3 data bucket, scheduled NEMWeb ingest Lambda, nightly plot rebuild Lambda and on-demand battery solve Lambda)
 
 Parameters:
   DistributionId:
     Type: String
     Default: E2JVBFPXUKXCQW
-    Description: CloudFront distribution (gridviz-site) allowed to read data/*
+    Description: CloudFront distribution (gridviz-site) allowed to read data/* and call the solve function URL
   ScheduleState:
     Type: String
     Default: ENABLED
@@ -185,6 +185,80 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
 
+  SolveLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/gridviz-solve
+      RetentionInDays: 14
+
+  # On-demand battery solve for the /solve page; only CloudFront (/api/*) may call its URL
+  SolveFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: gridviz-solve
+      CodeUri: ../engine/dist
+      Handler: battery.handler.handler
+      Runtime: python3.13
+      Architectures: [arm64]
+      MemorySize: 1024
+      # The solver gives up at 50 s (engine/src/battery/model.py); CloudFront waits at most 60 s
+      Timeout: 60
+      # Caps the cost of a public endpoint being flooded
+      ReservedConcurrentExecutions: 2
+      LoggingConfig:
+        LogGroup: !Ref SolveLogGroup
+      Environment:
+        Variables:
+          DATA_BUCKET: !Ref DataBucket
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: s3:GetObject
+              Resource: !Sub '${DataBucket.Arn}/data/days/*'
+            - Effect: Allow
+              Action: s3:ListBucket
+              Resource: !GetAtt DataBucket.Arn
+      FunctionUrlConfig:
+        AuthType: AWS_IAM
+
+  # CloudFront's docs grant both actions for a function URL behind origin access control
+  SolveUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SolveFunction
+      Action: lambda:InvokeFunctionUrl
+      FunctionUrlAuthType: AWS_IAM
+      Principal: cloudfront.amazonaws.com
+      SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${DistributionId}'
+
+  SolveInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SolveFunction
+      Action: lambda:InvokeFunction
+      Principal: cloudfront.amazonaws.com
+      SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${DistributionId}'
+
+  SolveErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: gridviz-solve-errors
+      AlarmDescription: >-
+        gridviz-solve crashed or timed out in the last day (bad requests and solver failures are
+        answered with 4xx/5xx and don't count). See /aws/lambda/gridviz-solve.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref SolveFunction
+      Statistic: Sum
+      Period: 86400
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
 Outputs:
   DataBucketName:
     Value: !Ref DataBucket
@@ -198,3 +272,10 @@ Outputs:
     Value: !Ref IngestFunction
   RebuildFunctionName:
     Value: !Ref RebuildFunction
+  SolveFunctionName:
+    Value: !Ref SolveFunction
+  SolveUrlDomain:
+    # FunctionUrl is https://<id>.lambda-url.<region>.on.aws/; CloudFront wants the host only
+    Value: !Select [2, !Split ['/', !GetAtt SolveFunctionUrl.FunctionUrl]]
+    Export:
+      Name: gridviz-solve-url-domain

@@ -20,7 +20,7 @@ const services: { service: string; url: string; role: string }[] = [
     {
         service: "CloudFront",
         url: "https://aws.amazon.com/cloudfront/",
-        role: "CDN serving the site and /data/*",
+        role: "CDN serving the site, /data/* and /api/*",
     },
     {
         service: "S3",
@@ -35,12 +35,17 @@ const services: { service: string; url: string; role: string }[] = [
     {
         service: "Lambda",
         url: "https://aws.amazon.com/lambda/",
-        role: "gridviz-ingest fetches AEMO data and gridviz-rebuild makes the plot files",
+        role: "gridviz-ingest fetches AEMO data, gridviz-rebuild makes the plot files, and gridviz-solve runs battery optimisations on demand",
     },
     {
         service: "CloudWatch",
         url: "https://aws.amazon.com/cloudwatch/",
         role: "Logs, an error alarm per Lambda, and an alarm if ingest stops running",
+    },
+    {
+        service: "Pyomo + HiGHS",
+        url: "https://www.pyomo.org/",
+        role: "Python modelling and open-source MIP solver behind gridviz-solve",
     },
     {
         service: "Next.js static export",
@@ -50,10 +55,11 @@ const services: { service: string; url: string; role: string }[] = [
 ];
 
 const pipeline = [
-    "Pull requests: GitHub Actions runs lint, tests, type checks and a build.",
+    "Pull requests: GitHub Actions runs lint, tests, type checks and a build, plus the Python solver's tests (pytest via uv).",
     "Releases: a v*.*.* tag builds the site, syncs it to S3 and invalidates CloudFront.",
     "Infrastructure: CloudFormation and SAM, each change previewed as a change set.",
     "CI's IAM user can only update the site bucket and invalidate the distribution.",
+    "The Python solver is bundled with uv for arm64 Lambda and deployed with the data stack.",
 ];
 
 const decisions = [
@@ -62,6 +68,10 @@ const decisions = [
     "Two years backfilled from AEMO's archives, checked against AEMO's own aggregates.",
     "Plot files rebuilt nightly; the browser adds the days since.",
     "Market events are flagged from AEMO's own data fields, not a hand-made list.",
+    "Battery solves run on demand rather than precomputed: one region-day solves in about a second, and CloudFront caches each answer.",
+    "The solve Lambda sits behind CloudFront with origin access control on a GET-only function URL, so there's no API Gateway, no CORS, and nothing can call it directly.",
+    "HiGHS through Pyomo instead of GAMSpy: no licence to manage in Lambda, and no model size limits.",
+    "Reserved concurrency of 2 caps what a flood of requests to the public solve endpoint could cost.",
     "The account's SCPs block us-east-1 CloudFormation and OIDC, so the certificate was made by hand and CI uses a scoped IAM user.",
 ];
 
@@ -98,11 +108,14 @@ export default function SiteArchitecture() {
   └─▶ Route 53         andyouandyou.com
        └─▶ CloudFront  HTTPS · cache
             ├─▶ S3     site bucket
-            └─▶ S3     data bucket (/data/*)
-                         latest.json                latest interval (Live)
-                         days/<date>.json           one file per trading day (Live, Plots)
-                         plots/<measure>-daily      daily means (Plots)
-                         plots/<measure>-extremes   highest and lowest days (Plots)
+            ├─▶ S3     data bucket (/data/*)
+            │            latest.json                latest interval (Live)
+            │            days/<date>.json           one file per trading day (Live, Plots, Solve)
+            │            plots/<measure>-daily      daily means (Plots)
+            │            plots/<measure>-extremes   highest and lowest days (Plots)
+            └─▶ Lambda solve (/api/solve?region=…&date=…)
+                         private function URL, cached per region and day
+                         reads days/<date>.json → Pyomo + HiGHS → schedule and bid (Solve)
 
 EventBridge Scheduler (every 5 min)
   └─▶ Lambda ingest    AEMO NEMWeb → latest.json + today's day file
