@@ -61,3 +61,8 @@ PLAN.md
 # NEMWeb download cache and local backfill output (milestone 3)
 /.cache/
 /backfill-out/
+
+engine/dist/
+engine/.venv/
+
+__pycache__/
