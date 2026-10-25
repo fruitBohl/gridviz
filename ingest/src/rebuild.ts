@@ -1,8 +1,8 @@
 import { createAggregator, plotKey } from "./aggregate";
 import { createExtremes, extremesKey } from "./extremes";
-import { dayKey, tradingDate, type DayFile } from "./output";
+import { dayKey, yesterday, type DayFile } from "./output";
 import type { Store } from "./store";
-import { addDays } from "./time";
+import { datesBetween } from "./time";
 
 export const HISTORY_START = "2024-10-01";
 const PLOT_CACHE_CONTROL = "public, max-age=3600";
@@ -26,9 +26,8 @@ export async function rebuild({
   log = () => {},
 }: RebuildOptions): Promise<RebuildResult> {
   const generatedAt = now();
-  const throughDate = addDays(tradingDate(generatedAt.toISOString()), -1);
-  const dates: string[] = [];
-  for (let d = from; d <= throughDate; d = addDays(d, 1)) dates.push(d);
+  const throughDate = yesterday(generatedAt);
+  const dates = datesBetween(from, throughDate);
 
   const aggregator = createAggregator({ from });
   const extremes = createExtremes();

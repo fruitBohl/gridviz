@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { createAggregator, plotKey, type Metric, type PlotFile } from "@/ingest/src/aggregate";
 import { dayKey, tradingDate, type DayFile } from "@/ingest/src/output";
-import { addDays } from "@/ingest/src/time";
+import { addDays, datesBetween } from "@/ingest/src/time";
+import { loadJson } from "@/lib/load";
 import { Banner } from "./Banner";
 import { DailyMeans } from "./DailyMeans";
 import { ExtremeDays } from "./ExtremeDays";
@@ -29,13 +30,10 @@ async function fetchDay(date: string, today: string): Promise<DayFile | undefine
  * same day files the ingest Lambda writes every 5 minutes, aggregated here the same way.
  */
 async function loadTails(): Promise<Extract<TailState, { status: "ok" }>> {
-  const res = await fetch(`/${plotKey("price")}`);
-  if (!res.ok) throw new Error(`/${plotKey("price")} returned ${res.status}`);
-  const { throughDate } = (await res.json()) as PlotFile;
+  const { throughDate } = await loadJson<PlotFile>(`/${plotKey("price")}`);
 
   const today = tradingDate(new Date().toISOString());
-  const dates: string[] = [];
-  for (let d = addDays(throughDate, 1); d <= today; d = addDays(d, 1)) dates.push(d);
+  const dates = datesBetween(addDays(throughDate, 1), today);
   const days = await Promise.all(dates.map((d) => fetchDay(d, today)));
 
   const tails: Tails = {};

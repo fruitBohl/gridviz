@@ -1,17 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { Metric } from "@/ingest/src/aggregate";
 import { extremesKey, RANKINGS, TOP_N, type Direction, type ExtremesFile, type Ranking } from "@/ingest/src/extremes";
 import { INTERVALS_PER_DAY } from "@/ingest/src/oddities";
 import { INTERVAL_MS, startOfDayMs, toMarketLabel } from "@/ingest/src/time";
 import { formatValue, labelMs, weekdayDate } from "@/lib/format";
-import { loadJson } from "@/lib/load";
-import { CHROME, INTERCONNECTORS, RANK_RAMP, type ColorMode } from "@/lib/nem";
+import { baseLayout, CHROME, hoverValue, INTERCONNECTORS, RANK_RAMP, type ColorMode } from "@/lib/nem";
 import { Banner } from "./Banner";
+import { Disclosure } from "./Disclosure";
 import { MeasurePicker } from "./MeasurePicker";
 import { RadioGroup } from "./RadioGroup";
+import { Table } from "./Table";
 import { useColorMode } from "./useColorMode";
+import { useJson } from "./useJson";
 import { usePlotly, type Figure } from "./usePlotly";
 
 /** Interval end times on a placeholder date, so every day shares one time-of-day axis. */
@@ -37,7 +39,7 @@ const dateLabel = (date: string) => weekdayDate.format(new Date(labelMs(date)));
 
 function buildFigure(file: ExtremesFile, id: string, direction: Direction, ranking: Ranking, mode: ColorMode): Figure {
   const chrome = CHROME[mode];
-  const valueFormat = file.metric === "price" ? "$%{y:,.2f}/MWh" : "%{y:,.0f} MW";
+  const valueFormat = hoverValue(file.metric);
   const traces = file.ranks[id][direction][ranking]
     .map((d, i) => ({
       type: "scatter" as const,
@@ -53,12 +55,9 @@ function buildFigure(file: ExtremesFile, id: string, direction: Direction, ranki
   return {
     traces,
     layout: {
+      ...baseLayout(mode),
       height: 380,
       margin: { l: 64, r: 16, t: 16, b: 40 },
-      paper_bgcolor: "rgba(0,0,0,0)",
-      plot_bgcolor: "rgba(0,0,0,0)",
-      font: { family: 'system-ui, -apple-system, "Segoe UI", sans-serif', size: 12, color: chrome.text },
-      hovermode: "x unified",
       legend: { orientation: "h", x: 0, y: -0.15, yanchor: "top", traceorder: "reversed", font: { color: chrome.text } },
       xaxis: {
         type: "date",
@@ -97,27 +96,12 @@ function ProfileChart({
       </h3>
       {error && <Banner>Couldn&apos;t draw the chart: {error}</Banner>}
       <div ref={ref} className="w-full" />
-      <details className="rounded-lg border border-zinc-200 text-sm dark:border-zinc-800">
-        <summary className="cursor-pointer px-4 py-2 text-zinc-600 dark:text-zinc-400">Table</summary>
-        <table className="w-full text-left">
-          <thead className="bg-zinc-50 text-zinc-500 dark:bg-zinc-900">
-            <tr>
-              <th scope="col" className="px-4 py-2 font-medium">Rank</th>
-              <th scope="col" className="px-4 py-2 font-medium">Trading day</th>
-              <th scope="col" className="px-4 py-2 text-right font-medium">{valueLabel(direction, ranking)}</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-            {days.map((d, i) => (
-              <tr key={d.date}>
-                <td className="px-4 py-2 tabular-nums">{i + 1}</td>
-                <th scope="row" className="px-4 py-2 font-normal">{dateLabel(d.date)}</th>
-                <td className="px-4 py-2 text-right tabular-nums">{formatValue(file.metric, d.value)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </details>
+      <Disclosure summary="Table">
+        <Table
+          headers={["Trading day", valueLabel(direction, ranking)]}
+          rows={days.map((d, i) => [`${i + 1}. ${dateLabel(d.date)}`, formatValue(file.metric, d.value)])}
+        />
+      </Disclosure>
     </div>
   );
 }
@@ -126,22 +110,7 @@ export function ExtremeDays() {
   const [metric, setMetric] = useState<Metric>("price");
   const [ranking, setRanking] = useState<Ranking>("mean");
   const [picked, setPicked] = useState<string>();
-  const [file, setFile] = useState<ExtremesFile>();
-  const [error, setError] = useState<{ metric: Metric; message: string }>();
-
-  useEffect(() => {
-    let cancelled = false;
-    loadJson<ExtremesFile>(`/${extremesKey(metric)}`).then(
-      (loaded) => !cancelled && setFile(loaded),
-      (err: Error) => !cancelled && setError({ metric, message: err.message }),
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [metric]);
-
-  const failed = error?.metric === metric ? error.message : undefined;
-  const loading = !failed && file?.metric !== metric;
+  const { data: file, error: failed, loading } = useJson<ExtremesFile>(`/${extremesKey(metric)}`);
   const ids = file ? Object.keys(file.ranks) : [];
   const id = picked && ids.includes(picked) ? picked : ids[0];
 

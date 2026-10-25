@@ -6,10 +6,12 @@ import { mergeTables, parseAemoCsv } from "./csv";
 import { buildIntervals, type DispatchInterval } from "./dispatchis";
 import { fetchListing, settlementFromName, USER_AGENT, type ReportFile } from "./nemweb";
 import { createReport, type OddityReport } from "./oddities";
-import { dayKey, mergeIntervals, tradingDate } from "./output";
+import { dayKey, mergeIntervals, tradingDate, yesterday } from "./output";
+import { HISTORY_START } from "./rebuild";
 import { parseFile } from "./run";
 import { DISPATCHIS_COLUMNS } from "./schema";
 import { FsStore } from "./store";
+import { datesBetween } from "./time";
 
 const MMSDM_URL = "https://nemweb.com.au/Data_Archive/Wholesale_Electricity/MMSDM";
 const DAILY_URL = "https://nemweb.com.au/Reports/Archive/DispatchIS_Reports/";
@@ -19,14 +21,6 @@ export type Source =
   | { kind: "mmsdm"; month: string; files: string[] }
   | { kind: "daily"; date: string }
   | { kind: "current"; date: string };
-
-export function datesBetween(from: string, to: string): string[] {
-  const dates: string[] = [];
-  for (let ms = Date.parse(`${from}T00:00:00Z`); ms <= Date.parse(`${to}T00:00:00Z`); ms += 86_400_000) {
-    dates.push(new Date(ms).toISOString().slice(0, 10));
-  }
-  return dates;
-}
 
 /** Prefer the monthly MMSDM archive, then the daily DispatchIS archive, then Current. */
 export function planSources(dates: string[], mmsdm: Map<string, string[]>, daily: Set<string>): Source[] {
@@ -235,20 +229,18 @@ export async function backfill(o: BackfillOptions): Promise<OddityReport | undef
   return result;
 }
 
-function yesterdayInMarketTime(now = new Date()): string {
-  const today = tradingDate(now.toISOString());
-  return new Date(Date.parse(`${today}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
-}
-
 if (import.meta.main) {
   const { values } = parseArgs({
     options: {
-      from: { type: "string", default: "2024-10-01" },
-      to: { type: "string", default: yesterdayInMarketTime() },
+      from: { type: "string", default: HISTORY_START },
+      to: { type: "string", default: yesterday(new Date()) },
       out: { type: "string", default: "backfill-out" },
       "plan-only": { type: "boolean", default: false },
     },
   });
+  for (const date of [values.from, values.to]) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`expected YYYY-MM-DD, got ${date}`);
+  }
   const report = await backfill({
     from: values.from,
     to: values.to,

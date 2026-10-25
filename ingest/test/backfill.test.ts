@@ -2,8 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { strToU8, zipSync } from "fflate";
-import { datesBetween, parseMmsdmListing, planSources, readDailyArchive, readMmsdmMonth } from "../src/backfill";
+import { parseMmsdmListing, planSources, readDailyArchive, readMmsdmMonth } from "../src/backfill";
 import { mergeTables, parseAemoCsv } from "../src/csv";
+import { datesBetween } from "../src/time";
 import { dispatchCsv, dispatchZip, validRows } from "./helpers";
 
 test("datesBetween crosses month and year ends", () => {

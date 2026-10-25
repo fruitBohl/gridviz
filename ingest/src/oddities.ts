@@ -1,7 +1,7 @@
 import type { EventKind, EventRun } from "./events";
 import { createEventTracker } from "./events";
 import type { DayFile } from "./output";
-import { INTERVAL_MS, toMarketIso } from "./time";
+import { datesBetween, INTERVAL_MS, toMarketIso } from "./time";
 
 export const INTERVALS_PER_DAY = 288;
 
@@ -73,10 +73,6 @@ export function createReport(from: string, to: string) {
     finish(): OddityReport {
       const runs: OddityReport["runs"] = {};
       for (const { kind, ...run } of events.finish()) (runs[kind] ??= []).push(run);
-      const days: string[] = [];
-      for (let ms = Date.parse(`${from}T00:00:00Z`); ms <= Date.parse(`${to}T00:00:00Z`); ms += 86_400_000) {
-        days.push(new Date(ms).toISOString().slice(0, 10));
-      }
       const interconnectors: OddityReport["interconnectors"] = {};
       for (const [id, link] of [...links].sort(([a], [b]) => a.localeCompare(b))) {
         const span = (Date.parse(link.last) - Date.parse(link.first)) / INTERVAL_MS + 1;
@@ -85,7 +81,7 @@ export function createReport(from: string, to: string) {
       return {
         from,
         to,
-        missingDays: days.filter((d) => !seenDays.has(d)),
+        missingDays: datesBetween(from, to).filter((d) => !seenDays.has(d)),
         incompleteDays,
         runs,
         interconnectors,

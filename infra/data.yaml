@@ -103,7 +103,7 @@ Resources:
     Properties:
       AlarmName: gridviz-ingest-errors
       AlarmDescription: >-
-        gridviz-ingest failed in the last 15 minutes. AemoFormatError in /aws/lambda/gridviz-ingest
+        gridviz-ingest failed or didn't run in the last 15 minutes. AemoFormatError in /aws/lambda/gridviz-ingest
         means AEMO changed the DispatchIS format; see ingest/src/schema.ts.
       Namespace: AWS/Lambda
       MetricName: Errors
@@ -115,7 +115,8 @@ Resources:
       EvaluationPeriods: 3
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: notBreaching
+      # Lambda reports Errors=0 on every invocation, so no data means the schedule stopped
+      TreatMissingData: breaching
 
   RebuildLogGroup:
     Type: AWS::Logs::LogGroup

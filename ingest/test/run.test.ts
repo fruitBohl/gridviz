@@ -96,10 +96,12 @@ test("intervals are split across trading days at the 00:00 boundary", async () =
   expect(prev.intervals.map((i) => i.t)).toEqual(["2026-10-23T23:55:00+10:00", "2026-10-24T00:00:00+10:00"]);
 });
 
-test("maxFiles keeps the newest files", async () => {
+test("maxFiles takes the oldest files and the next run carries on", async () => {
   await store.putJson("data/latest.json", { settlementDate: "2026-10-23T23:50:00+10:00" });
   await run({ ...options(), maxFiles: 2 });
-  expect(fetched).toEqual(["2026-10-24T00:05:00+10:00", "2026-10-24T00:10:00+10:00"]);
+  expect(fetched).toEqual(["2026-10-23T23:55:00+10:00", "2026-10-24T00:00:00+10:00"]);
+  await run({ ...options(), maxFiles: 2 });
+  expect(fetched.slice(2)).toEqual(["2026-10-24T00:05:00+10:00", "2026-10-24T00:10:00+10:00"]);
 });
 
 test("archiveRaw: false keeps no zips", async () => {
