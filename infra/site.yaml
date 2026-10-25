@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: gridviz static site (S3 + CloudFront + DNS records + CI deploy user), plus /data/* from gridviz-data
+Description: gridviz static site (S3 + CloudFront + DNS records + CI deploy user), plus /data/* and /api/* from gridviz-data
 
 Parameters:
   DomainName:
@@ -25,6 +25,15 @@ Resources:
       OriginAccessControlConfig:
         Name: !Sub '${AWS::StackName}-oac'
         OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  SolveOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub '${AWS::StackName}-solve-oac'
+        OriginAccessControlOriginType: lambda
         SigningBehavior: always
         SigningProtocol: sigv4
 
@@ -62,6 +71,29 @@ Resources:
             HeaderBehavior: none
           QueryStringsConfig:
             QueryStringBehavior: none
+
+  # A solve depends only on region and date; the Lambda sends max-age for successes and no-store for errors
+  SolveCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub '${AWS::StackName}-solve'
+        Comment: Battery solve responses, keyed on region and date
+        MinTTL: 0
+        DefaultTTL: 0
+        MaxTTL: 86400
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingGzip: true
+          EnableAcceptEncodingBrotli: true
+          CookiesConfig:
+            CookieBehavior: none
+          HeadersConfig:
+            HeaderBehavior: none
+          QueryStringsConfig:
+            QueryStringBehavior: whitelist
+            QueryStrings:
+              - region
+              - date
 
   # Next static export writes /about as about.html; S3 has no key without the suffix
   RewriteFunction:
@@ -108,6 +140,13 @@ Resources:
             OriginAccessControlId: !GetAtt SiteOAC.Id
             S3OriginConfig:
               OriginAccessIdentity: ''
+          - Id: Solve
+            DomainName: !ImportValue gridviz-solve-url-domain
+            OriginAccessControlId: !GetAtt SolveOAC.Id
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: [TLSv1.2]
+              OriginReadTimeout: 60
         DefaultCacheBehavior:
           TargetOriginId: SiteBucket
           ViewerProtocolPolicy: redirect-to-https
@@ -121,6 +160,14 @@ Resources:
             TargetOriginId: DataBucket
             ViewerProtocolPolicy: redirect-to-https
             CachePolicyId: !Ref DataCachePolicy
+            Compress: true
+          - PathPattern: api/*
+            TargetOriginId: Solve
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD]
+            CachePolicyId: !Ref SolveCachePolicy
+            # Managed-AllViewerExceptHostHeader: a function URL rejects CloudFront's Host header
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
             Compress: true
         # Missing keys come back as 403 from S3 under OAC
         CustomErrorResponses:

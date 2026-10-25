@@ -11,9 +11,11 @@
     "ingest:local": "bun ingest/src/local.ts",
     "backfill": "bun ingest/src/backfill.ts",
     "build:ingest": "rm -rf ingest/dist && bun build ingest/src/handler.ts ingest/src/rebuild-handler.ts --target=node --format=esm --external '@aws-sdk/*' --sourcemap=linked --outdir=ingest/dist --entry-naming=[name].mjs",
-    "deploy:data": "bun run build:ingest && uvx --from aws-sam-cli sam deploy"
+    "build:engine": "rm -rf engine/dist && cd engine && uv export --frozen --no-dev --no-hashes --no-emit-project -o dist/requirements.txt && uv pip install --quiet --target dist --python-platform aarch64-manylinux_2_28 --python-version 3.13 -r dist/requirements.txt && cp -r src/battery dist/ && find dist -name __pycache__ -prune -exec rm -rf {} +",
+    "deploy:data": "bun run build:ingest && bun run build:engine && uvx --from aws-sam-cli sam deploy"
   },
   "dependencies": {
+    "katex": "^0.19.1",
     "next": "16.4.3",
     "plotly.js-dist-min": "^4.1.2",
     "react": "19.3.0",
