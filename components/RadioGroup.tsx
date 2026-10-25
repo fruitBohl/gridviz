@@ -1,3 +1,6 @@
+import { useId } from "react";
+
+/** Native radios, not buttons, so arrow keys move the choice and the group is one Tab stop. */
 export function RadioGroup<T extends string>({
   label,
   options,
@@ -9,24 +12,30 @@ export function RadioGroup<T extends string>({
   value: T;
   onChange: (value: T) => void;
 }) {
+  const name = useId();
   return (
-    <div role="radiogroup" aria-label={label} className="inline-flex w-fit flex-wrap rounded-lg border border-zinc-200 p-0.5 text-sm dark:border-zinc-800">
+    <fieldset className="inline-flex w-fit flex-wrap rounded-lg border border-zinc-200 p-0.5 text-sm dark:border-zinc-800">
+      <legend className="sr-only">{label}</legend>
       {options.map((o) => (
-        <button
+        <label
           key={o.value}
-          type="button"
-          role="radio"
-          aria-checked={value === o.value}
-          aria-label={o.title}
           title={o.title}
-          onClick={() => onChange(o.value)}
-          className={`rounded-md px-3 py-1 ${
+          className={`cursor-pointer rounded-md px-3 py-1 has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-foreground ${
             value === o.value ? "bg-foreground text-background" : "text-zinc-600 hover:text-foreground dark:text-zinc-400"
           }`}
         >
+          <input
+            type="radio"
+            name={name}
+            value={o.value}
+            checked={value === o.value}
+            onChange={() => onChange(o.value)}
+            aria-label={o.title}
+            className="sr-only"
+          />
           {o.label}
-        </button>
+        </label>
       ))}
-    </div>
+    </fieldset>
   );
 }
