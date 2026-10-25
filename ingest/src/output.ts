@@ -1,4 +1,5 @@
 import type { DispatchInterval } from "./dispatchis";
+import { addDays, AEST_MS, INTERVAL_MS } from "./time";
 
 export type Latest = Omit<DispatchInterval, "t"> & {
   settlementDate: string;
@@ -13,13 +14,13 @@ export type DayFile = {
 export const LATEST_KEY = "data/latest.json";
 export const dayKey = (tradingDate: string) => `data/days/${tradingDate}.json`;
 
-const AEST_MS = 10 * 60 * 60 * 1000;
-const INTERVAL_MS = 5 * 60 * 1000;
-
 /** Intervals are labelled by their end time, so the one ending 00:00 belongs to the previous trading day. */
 export function tradingDate(t: string): string {
   return new Date(Date.parse(t) - INTERVAL_MS + AEST_MS).toISOString().slice(0, 10);
 }
+
+/** The last complete trading day. */
+export const yesterday = (now: Date) => addDays(tradingDate(now.toISOString()), -1);
 
 export function startOfTradingDay(t: string): string {
   return `${tradingDate(t)}T00:05:00+10:00`;

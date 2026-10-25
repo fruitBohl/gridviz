@@ -12,3 +12,9 @@ export const startOfDayMs = (date: string) => Date.parse(`${date}T00:00:00+10:00
 
 export const addDays = (date: string, days: number) =>
   new Date(Date.parse(`${date}T00:00:00Z`) + days * DAY_MS).toISOString().slice(0, 10);
+
+export function datesBetween(from: string, to: string): string[] {
+  const dates: string[] = [];
+  for (let d = from; d <= to; d = addDays(d, 1)) dates.push(d);
+  return dates;
+}
